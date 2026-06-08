@@ -1,0 +1,9 @@
+@import "tailwindcss";
+/* Ẩn thanh cuộn scrollbar cho vùng chứa lớp học */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari và Opera */
+}
+.hide-scrollbar {
+  -ms-overflow-style: none; /* IE và Edge */
+  scrollbar-width: none; /* Firefox */
+}
