@@ -1,6 +1,10 @@
 import React, { useRef } from "react";
 
-// 1. Tạo dữ liệu ảo (Mock Data) cho các lớp học
+// ==========================================
+// 1. DỮ LIỆU ẢO (MOCK DATA) - ĐỂ RIÊNG Ở ĐÂY
+// ==========================================
+// 💡 SAU NÀY KẾT NỐI API THÌ XÓA MẢNG NÀY ĐI.
+// Thay vào đó, bạn sẽ dùng useEffect gọi API: axios.get('/api/classes').then(res => setClasses(res.data))
 const MOCK_CLASSES = [
   {
     id: "L001",
@@ -69,30 +73,57 @@ export default function ClassList({ onClassClick }) {
       const scrollAmount = direction === "left" ? -cardWidth : cardWidth;
       scrollContainerRef.current.scrollBy({
         left: scrollAmount,
-        behavior: "smooth", // Hiệu ứng trượt mượt mà
+        behavior: "smooth",
       });
     }
   };
 
+  // Hàm giả lập đăng ký nhận lớp khi chưa có backend
+  const handleApplyFake = (cls) => {
+    // Đọc user hiện tại từ localStorage xem là ai đang bấm đăng ký
+    const user = JSON.parse(localStorage.getItem("user"));
+
+    if (!user || user.role !== "tutor") {
+      alert(
+        "Chức năng 'Đăng Ký Nhận Lớp' chỉ dành riêng cho tài khoản hệ Vai trò: Gia sư! Vui lòng chọn tài khoản Gia sư ở nút Test Roles trên Header để thử nghiệm.",
+      );
+      return;
+    }
+
+    // Nếu đúng là Gia sư, xử lý tiếp
+    alert(
+      `[MOCK SUCCESS] Gia sư "${user.name}" đã gửi yêu cầu nhận lớp mã: ${cls.id} (${cls.subject}).\n\n💡 GIẢI THÍCH BACKEND: Sau này chỗ này bạn sẽ gửi một yêu cầu API: axios.post('/api/requests/apply', { tutorId: user.id, classId: cls.id }) lên server để lưu vào database và thông báo cho Admin duyệt.`,
+    );
+
+    if (onClassClick) {
+      onClassClick(cls);
+    }
+  };
+
   return (
-    <section style={containerStyle}>
+    <section className="px-[8%] py-[60px] bg-white relative">
       {/* Tiêu đề vùng hiển thị */}
-      <div style={headerStyle}>
+      <div className="flex justify-between items-end mb-[30px]">
         <div>
-          <h2 style={titleStyle}>Lớp Học Mới Đang Tìm Gia Sư</h2>
-          <p style={subtitleStyle}>
+          <h2 className="text-[28px] font-bold text-gray-900 m-0 mb-2">
+            Lớp Học Mới Đang Tìm Gia Sư
+          </h2>
+          <p className="text-base text-gray-500 m-0">
             Các lớp học vừa được đăng ký, nhận lớp ngay hôm nay
           </p>
         </div>
 
         {/* Nút bấm điều hướng trượt ngang */}
-        <div style={arrowGroupStyle}>
-          <button onClick={() => handleScroll("left")} style={arrowButtonStyle}>
+        <div className="flex gap-2.5">
+          <button
+            onClick={() => handleScroll("left")}
+            className="w-10 h-10 rounded-full border border-solid border-gray-300 bg-white text-lg cursor-pointer flex justify-center items-center shadow-[0_2px_4px_rgba(0,0,0,0.05)] select-none transition-all duration-200 active:scale-95 hover:bg-gray-50"
+          >
             ←
           </button>
           <button
             onClick={() => handleScroll("right")}
-            style={arrowButtonStyle}
+            className="w-10 h-10 rounded-full border border-solid border-gray-300 bg-white text-lg cursor-pointer flex justify-center items-center shadow-[0_2px_4px_rgba(0,0,0,0.05)] select-none transition-all duration-200 active:scale-95 hover:bg-gray-50"
           >
             →
           </button>
@@ -100,46 +131,62 @@ export default function ClassList({ onClassClick }) {
       </div>
 
       {/* Vùng chứa danh sách lớp có hỗ trợ scroll ngang ẩn thanh cuộn */}
+      {/* Mẹo ẩn thanh cuộn: Thêm thuộc tính overflow-x-auto và style ẩn ở file CSS tổng */}
       <div
         ref={scrollContainerRef}
-        style={scrollWrapperStyle}
-        className="hide-scrollbar"
+        className="flex gap-6 overflow-x-auto scroll-smooth pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
       >
         {MOCK_CLASSES.map((cls) => (
-          <div key={cls.id} style={cardStyle}>
-            <div style={cardHeaderStyle}>
-              <span style={codeStyle}>Mã: {cls.id}</span>
-              <span style={statusBadgeStyle}>{cls.status}</span>
+          <div
+            key={cls.id}
+            className="flex-[0_0_calc(33.333%-16px)] min-w-[340px] bg-gray-50 border border-solid border-gray-200 rounded-xl p-6 box-border flex flex-col justify-between shadow-[0_4px_6px_-1px_rgba(0,0,0,0.02)]"
+          >
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-[13px] font-semibold text-gray-400">
+                  Mã: {cls.id}
+                </span>
+                <span className="bg-amber-100 text-amber-600 px-2.5 py-1 rounded-full text-xs font-semibold">
+                  {cls.status}
+                </span>
+              </div>
+
+              <h3 className="text-lg font-bold text-gray-800 m-0 mb-4 leading-normal h-[54px] overflow-hidden line-clamp-2">
+                {cls.subject}
+              </h3>
+
+              <div className="space-y-2.5">
+                <div className="flex justify-between text-sm leading-normal">
+                  <span className="text-gray-500">Trình độ:</span>
+                  <span className="text-gray-700 font-medium text-right max-w-[70%]">
+                    {cls.grade}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm leading-normal">
+                  <span className="text-gray-500">Học phí:</span>
+                  <span className="text-red-500 font-bold text-right max-w-[70%]">
+                    {cls.fee}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm leading-normal">
+                  <span className="text-gray-500">Lịch học:</span>
+                  <span className="text-gray-700 font-medium text-right max-w-[70%]">
+                    {cls.frequency}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm leading-normal">
+                  <span className="text-gray-500">Địa điểm:</span>
+                  <span className="text-gray-700 font-medium text-right max-w-[70%]">
+                    {cls.address}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <h3 style={subjectStyle}>{cls.subject}</h3>
-
-            <div style={infoRowStyle}>
-              <span style={infoLabelStyle}>Trình độ:</span>
-              <span style={infoValueStyle}>{cls.grade}</span>
-            </div>
-            <div style={infoRowStyle}>
-              <span style={infoLabelStyle}>Học phí:</span>
-              <span
-                style={{
-                  ...infoValueStyle,
-                  color: "#EF4444",
-                  fontWeight: "bold",
-                }}
-              >
-                {cls.fee}
-              </span>
-            </div>
-            <div style={infoRowStyle}>
-              <span style={infoLabelStyle}>Lịch học:</span>
-              <span style={infoValueStyle}>{cls.frequency}</span>
-            </div>
-            <div style={infoRowStyle}>
-              <span style={infoLabelStyle}>Địa điểm:</span>
-              <span style={infoValueStyle}>{cls.address}</span>
-            </div>
-
-            <button onClick={() => onClassClick(cls)} style={btnApplyStyle}>
+            <button
+              onClick={() => handleApplyFake(cls)}
+              className="mt-5 w-full p-3 bg-blue-600 text-white border-none rounded-lg text-sm font-bold cursor-pointer text-center hover:bg-blue-700 transition-colors duration-200 active:scale-[0.98]"
+            >
               Đăng Ký Nhận Lớp
             </button>
           </div>
@@ -148,139 +195,3 @@ export default function ClassList({ onClassClick }) {
     </section>
   );
 }
-
-// ================= STYLING BẰNG INLINE CSS =================
-const containerStyle = {
-  padding: "60px 8%",
-  backgroundColor: "#ffffff",
-  position: "relative",
-};
-
-const headerStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "end",
-  marginBottom: "30px",
-};
-
-const titleStyle = {
-  fontSize: "28px",
-  fontWeight: "700",
-  color: "#111827",
-  margin: "0 0 8px 0",
-};
-
-const subtitleStyle = {
-  fontSize: "16px",
-  color: "#6B7280",
-  margin: 0,
-};
-
-const arrowGroupStyle = {
-  display: "flex",
-  gap: "10px",
-};
-
-const arrowButtonStyle = {
-  width: "40px",
-  height: "40px",
-  borderRadius: "50%",
-  border: "1px solid #D1D5DB",
-  backgroundColor: "#fff",
-  fontSize: "18px",
-  cursor: "pointer",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
-  userSelect: "none",
-  transition: "all 0.2s",
-};
-
-const scrollWrapperStyle = {
-  display: "flex",
-  gap: "24px",
-  overflowX: "auto", // Cho phép kéo/cuộn ngang
-  scrollBehavior: "smooth",
-  paddingBottom: "15px",
-  // Đoạn CSS ẩn thanh cuộn scrollbar chuẩn của trình duyệt (Sẽ bổ sung thêm global CSS ở bước sau)
-};
-
-const cardStyle = {
-  flex: "0 0 calc(33.333% - 16px)", // Đảm bảo hiện đúng 3 lớp trên 1 màn hình lớn
-  minWidth: "340px", // Để không bị quá bóp méo trên màn hình nhỏ
-  backgroundColor: "#F9FAFB",
-  border: "1px solid #E5E7EB",
-  borderRadius: "12px",
-  padding: "24px",
-  boxSizing: "border-box",
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "space-between",
-  boxShadow: "0 4px 6px -1px rgba(0,0,0,0.02)",
-};
-
-const cardHeaderStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: "15px",
-};
-
-const codeStyle = {
-  fontSize: "13px",
-  fontWeight: "600",
-  color: "#9CA3AF",
-};
-
-const statusBadgeStyle = {
-  backgroundColor: "#FEF3C7",
-  color: "#D97706",
-  padding: "4px 10px",
-  borderRadius: "12px",
-  fontSize: "12px",
-  fontWeight: "600",
-};
-
-const subjectStyle = {
-  fontSize: "18px",
-  fontWeight: "700",
-  color: "#1F2937",
-  margin: "0 0 15px 0",
-  lineHeight: "1.4",
-  height: "50px", // Khóa chiều cao cố định để các card đều nhau
-  overflow: "hidden",
-};
-
-const infoRowStyle = {
-  display: "flex",
-  justifyContent: "space-between",
-  fontSize: "14px",
-  marginBottom: "10px",
-  lineHeight: "1.5",
-};
-
-const infoLabelStyle = {
-  color: "#6B7280",
-};
-
-const infoValueStyle = {
-  color: "#374151",
-  fontWeight: "500",
-  textAlign: "right",
-  maxWidth: "70%",
-};
-
-const btnApplyStyle = {
-  marginTop: "20px",
-  padding: "12px",
-  backgroundColor: "#1A56DB",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  fontSize: "15px",
-  fontWeight: "bold",
-  cursor: "pointer",
-  textAlign: "center",
-  width: "100%",
-};
