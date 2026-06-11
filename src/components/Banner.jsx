@@ -1,10 +1,32 @@
 import React from "react";
 import bgImage from "../assets/Bg.png";
+import { useAuth } from "../contexts/AuthContext";
+import { useModal } from '../contexts/ModalContext';
+export default function Banner() {
+  const { user } = useAuth();
+  const { openLogin, openRegister } = useModal();
 
-export default function Banner({ onFindTutorClick, onBeTutorClick }) {
-  // Đọc dữ liệu user ảo từ localStorage để Banner biết mình nên hiện nội dung gì
-  const user = JSON.parse(localStorage.getItem("user")) || null;
+  // Định nghĩa hàm xử lý khi bấm nút "Tìm Gia Sư"
+  const onFindTutorClick = () => {
+    if (!user) {
+      // Nếu chưa đăng nhập thì mở modal Đăng nhập/Đăng ký lên
+      openLogin(); 
+    } else {
+      // Nếu đã đăng nhập rồi (dành cho Student ở dưới)
+      alert("Chuyển hướng đến trang tạo yêu cầu tìm gia sư...");
+    }
+  };
 
+  // Định nghĩa hàm xử lý khi bấm nút "Trở Thành Gia Sư"
+  const onBeTutorClick = () => {
+    if (!user) {
+      // Nếu chưa đăng nhập thì yêu cầu đăng ký tài khoản gia sư
+      openRegister();
+    } else {
+      // Nếu đã đăng nhập rồi (dành cho Tutor ở dưới)
+      alert("Chuyển hướng đến trang cập nhật lịch rảnh...");
+    }
+  };
   // =========================================================================
   // TRƯỜNG HỢP 1: CHƯA ĐĂNG NHẬP (Khách vãng lai) -> Hiện Banner quảng cáo gốc của bạn
   // =========================================================================

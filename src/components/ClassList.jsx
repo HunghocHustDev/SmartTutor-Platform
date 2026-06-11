@@ -1,197 +1,94 @@
-import React, { useRef } from "react";
+import React, { useState, useEffect } from "react";
 
-// ==========================================
-// 1. DỮ LIỆU ẢO (MOCK DATA) - ĐỂ RIÊNG Ở ĐÂY
-// ==========================================
-// 💡 SAU NÀY KẾT NỐI API THÌ XÓA MẢNG NÀY ĐI.
-// Thay vào đó, bạn sẽ dùng useEffect gọi API: axios.get('/api/classes').then(res => setClasses(res.data))
-const MOCK_CLASSES = [
+const sampleClasses = [
   {
-    id: "L001",
-    subject: "Toán học (Ôn thi THPT Quốc Gia)",
-    grade: "Lớp 12",
-    fee: "250.000đ/buổi",
-    address: "Quận Hai Bà Trưng, Hà Nội",
-    status: "Đang tìm Gia sư",
-    frequency: "2 buổi/tuần",
+    id: 1,
+    subject: "Toán 12",
+    level: "Lớp 12",
+    area: "Cầu Giấy",
+    schedule: "Tối T2, T4",
+    salary: "250k/buổi",
+    status: "Đang tuyển",
   },
   {
-    id: "L002",
-    subject: "Tiếng Anh Giao Tiếp Cơ Bản",
-    grade: "Người đi làm",
-    fee: "300.000đ/buổi",
-    address: "Quận Cầu Giấy, Hà Nội",
-    status: "Đang tìm Gia sư",
-    frequency: "3 buổi/tuần",
+    id: 2,
+    subject: "Ngữ văn 9",
+    level: "Lớp 9",
+    area: "Đống Đa",
+    schedule: "Tối T3, T6",
+    salary: "200k/buổi",
+    status: "Đang tuyển",
   },
   {
-    id: "L003",
-    subject: "Vật Lý (Luyện thi vào 10)",
-    grade: "Lớp 9",
-    fee: "200.000đ/buổi",
-    address: "Quận Đống Đa, Hà Nội",
-    status: "Đang tìm Gia sư",
-    frequency: "2 buổi/tuần",
-  },
-  {
-    id: "L004",
-    subject: "Hóa Học Cơ Bản & Nâng Cao",
-    grade: "Lớp 11",
-    fee: "220.000đ/buổi",
-    address: "Quận Ba Đình, Hà Nội",
-    status: "Đang tìm Gia sư",
-    frequency: "2 buổi/tuần",
-  },
-  {
-    id: "L005",
-    subject: "Lập trình Python Kid",
-    grade: "Lớp 7",
-    fee: "350.000đ/buổi",
-    address: "Quận Nam Từ Liêm, Hà Nội",
-    status: "Đang tìm Gia sư",
-    frequency: "1 buổi/tuần",
-  },
-  {
-    id: "L006",
-    subject: "Ngữ Văn (Bồi dưỡng học sinh giỏi)",
-    grade: "Lớp 9",
-    fee: "200.000đ/buổi",
-    address: "Quận Hoàn Kiếm, Hà Nội",
-    status: "Đang tìm Gia sư",
-    frequency: "2 buổi/tuần",
+    id: 3,
+    subject: "Tiếng Anh 10",
+    level: "Lớp 10",
+    area: "Thanh Xuân",
+    schedule: "Sáng T7, CN",
+    salary: "300k/buổi",
+    status: "Đã có gia sư",
   },
 ];
 
 export default function ClassList({ onClassClick }) {
-  // Dùng useRef để điều khiển cuộn thanh trượt bằng nút bấm
-  const scrollContainerRef = useRef(null);
+  const [user, setUser] = useState(null);
+  const [classes, setClasses] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Hàm xử lý khi bấm nút trượt sang trái/phải
-  const handleScroll = (direction) => {
-    if (scrollContainerRef.current) {
-      const cardWidth = 360 + 24; // Chiều rộng của 1 card + gap
-      const scrollAmount = direction === "left" ? -cardWidth : cardWidth;
-      scrollContainerRef.current.scrollBy({
-        left: scrollAmount,
-        behavior: "smooth",
-      });
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
     }
-  };
+    // Giả lập gọi API
+    setTimeout(() => {
+      setClasses(sampleClasses);
+      setLoading(false);
+    }, 500);
+  }, []);
 
-  // Hàm giả lập đăng ký nhận lớp khi chưa có backend
-  const handleApplyFake = (cls) => {
-    // Đọc user hiện tại từ localStorage xem là ai đang bấm đăng ký
-    const user = JSON.parse(localStorage.getItem("user"));
+  const canRegister = !user || user?.role === "tutor";
 
-    if (!user || user.role !== "tutor") {
-      alert(
-        "Chức năng 'Đăng Ký Nhận Lớp' chỉ dành riêng cho tài khoản hệ Vai trò: Gia sư! Vui lòng chọn tài khoản Gia sư ở nút Test Roles trên Header để thử nghiệm.",
-      );
-      return;
-    }
+  if (loading) {
+    return <div className="p-4 text-center text-gray-500">Đang tải danh sách lớp...</div>;
+  }
 
-    // Nếu đúng là Gia sư, xử lý tiếp
-    alert(
-      `[MOCK SUCCESS] Gia sư "${user.name}" đã gửi yêu cầu nhận lớp mã: ${cls.id} (${cls.subject}).\n\n💡 GIẢI THÍCH BACKEND: Sau này chỗ này bạn sẽ gửi một yêu cầu API: axios.post('/api/requests/apply', { tutorId: user.id, classId: cls.id }) lên server để lưu vào database và thông báo cho Admin duyệt.`,
-    );
-
-    if (onClassClick) {
-      onClassClick(cls);
-    }
-  };
+  if (classes.length === 0) {
+    return <div className="p-4 text-center text-gray-500">Hiện chưa có lớp mới nào.</div>;
+  }
 
   return (
-    <section className="px-[8%] py-[60px] bg-white relative">
-      {/* Tiêu đề vùng hiển thị */}
-      <div className="flex justify-between items-end mb-[30px]">
-        <div>
-          <h2 className="text-[28px] font-bold text-gray-900 m-0 mb-2">
-            Lớp Học Mới Đang Tìm Gia Sư
-          </h2>
-          <p className="text-base text-gray-500 m-0">
-            Các lớp học vừa được đăng ký, nhận lớp ngay hôm nay
-          </p>
-        </div>
-
-        {/* Nút bấm điều hướng trượt ngang */}
-        <div className="flex gap-2.5">
-          <button
-            onClick={() => handleScroll("left")}
-            className="w-10 h-10 rounded-full border border-solid border-gray-300 bg-white text-lg cursor-pointer flex justify-center items-center shadow-[0_2px_4px_rgba(0,0,0,0.05)] select-none transition-all duration-200 active:scale-95 hover:bg-gray-50"
-          >
-            ←
-          </button>
-          <button
-            onClick={() => handleScroll("right")}
-            className="w-10 h-10 rounded-full border border-solid border-gray-300 bg-white text-lg cursor-pointer flex justify-center items-center shadow-[0_2px_4px_rgba(0,0,0,0.05)] select-none transition-all duration-200 active:scale-95 hover:bg-gray-50"
-          >
-            →
-          </button>
-        </div>
-      </div>
-
-      {/* Vùng chứa danh sách lớp có hỗ trợ scroll ngang ẩn thanh cuộn */}
-      {/* Mẹo ẩn thanh cuộn: Thêm thuộc tính overflow-x-auto và style ẩn ở file CSS tổng */}
-      <div
-        ref={scrollContainerRef}
-        className="flex gap-6 overflow-x-auto scroll-smooth pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-      >
-        {MOCK_CLASSES.map((cls) => (
-          <div
-            key={cls.id}
-            className="flex-[0_0_calc(33.333%-16px)] min-w-[340px] bg-gray-50 border border-solid border-gray-200 rounded-xl p-6 box-border flex flex-col justify-between shadow-[0_4px_6px_-1px_rgba(0,0,0,0.02)]"
-          >
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <span className="text-[13px] font-semibold text-gray-400">
-                  Mã: {cls.id}
-                </span>
-                <span className="bg-amber-100 text-amber-600 px-2.5 py-1 rounded-full text-xs font-semibold">
+    <div className="class-list-container grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-4">
+      {classes.map((cls) => (
+        <div key={cls.id} className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden hover:shadow-lg transition">
+          <div className="p-4">
+            <h3 className="text-xl font-bold text-gray-800 mb-2">
+              {cls.subject} - {cls.level}
+            </h3>
+            <div className="space-y-1 text-sm text-gray-600">
+              <p><span className="font-medium">📍 Khu vực:</span> {cls.area}</p>
+              <p><span className="font-medium">📅 Lịch học:</span> {cls.schedule}</p>
+              <p><span className="font-medium">💰 Học phí:</span> {cls.salary}</p>
+              <p>
+                <span className="font-medium">📌 Trạng thái:</span>{" "}
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cls.status === "Đang tuyển" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
                   {cls.status}
                 </span>
-              </div>
-
-              <h3 className="text-lg font-bold text-gray-800 m-0 mb-4 leading-normal h-[54px] overflow-hidden line-clamp-2">
-                {cls.subject}
-              </h3>
-
-              <div className="space-y-2.5">
-                <div className="flex justify-between text-sm leading-normal">
-                  <span className="text-gray-500">Trình độ:</span>
-                  <span className="text-gray-700 font-medium text-right max-w-[70%]">
-                    {cls.grade}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm leading-normal">
-                  <span className="text-gray-500">Học phí:</span>
-                  <span className="text-red-500 font-bold text-right max-w-[70%]">
-                    {cls.fee}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm leading-normal">
-                  <span className="text-gray-500">Lịch học:</span>
-                  <span className="text-gray-700 font-medium text-right max-w-[70%]">
-                    {cls.frequency}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm leading-normal">
-                  <span className="text-gray-500">Địa điểm:</span>
-                  <span className="text-gray-700 font-medium text-right max-w-[70%]">
-                    {cls.address}
-                  </span>
-                </div>
-              </div>
+              </p>
             </div>
-
-            <button
-              onClick={() => handleApplyFake(cls)}
-              className="mt-5 w-full p-3 bg-blue-600 text-white border-none rounded-lg text-sm font-bold cursor-pointer text-center hover:bg-blue-700 transition-colors duration-200 active:scale-[0.98]"
-            >
-              Đăng Ký Nhận Lớp
-            </button>
+            {canRegister ? (
+              <button onClick={() => onClassClick(cls)} className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md transition-colors">
+                Đăng ký nhận lớp
+              </button>
+            ) : (
+              <div className="mt-4 text-center text-sm text-gray-400 border-t pt-3">
+                {user?.role === "student" && "🚫 Chức năng dành cho gia sư"}
+                {user?.role === "admin" && "🔧 Admin không thể nhận lớp"}
+              </div>
+            )}
           </div>
-        ))}
-      </div>
-    </section>
+        </div>
+      ))}
+    </div>
   );
 }
