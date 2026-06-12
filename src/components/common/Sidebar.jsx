@@ -25,6 +25,7 @@ const Sidebar = () => {
   } else if (user.role === 'admin') {
     menuItems = [
       { label: 'Tổng quan', path: '/' },
+      { label: 'Quản lý Học viên', path: '/admin/students' },
       { label: 'Quản lý Gia sư', path: '/admin/tutors' },
       { label: 'Xử lý Nhu cầu', path: '/admin/requests' },
       { label: 'Quản lý Lớp', path: '/admin/classes' },

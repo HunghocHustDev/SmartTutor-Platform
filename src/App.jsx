@@ -12,6 +12,7 @@ import ClassesPage from './pages/ClassesPage';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import { useModal } from './contexts/ModalContext';
+import StudentList from './pages/StudentList';
 
 // Component để render modal toàn cục
 const ModalRenderer = () => {
@@ -62,6 +63,7 @@ const router = createBrowserRouter([
       { path: 'admin/requests', element: <LearningRequestsPage /> },
       { path: 'admin/classes', element: <ClassesPage /> },
       { path: 'admin/finance', element: <DashboardPage /> },
+      { path: 'admin/students', element: <StudentList /> },
     ],
   },
 ]);

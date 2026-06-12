@@ -1,72 +1,67 @@
-// pages/TutorsPage.jsx
+// pages/StudentList.jsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 // Dữ liệu mẫu (sau này thay bằng API)
-const sampleTutors = [
-  { id: 1, full_name: 'Thầy Ngô Bảo', phone: '0903123456', email: 'bao.ngo@example.com', area: 'Cầu Giấy', subjects: 'Toán, Lý', experience: 5, status: 'ACTIVE' },
-  { id: 2, full_name: 'Cô Nguyễn Hoa', phone: '0912345678', email: 'hoa.nguyen@example.com', area: 'Đống Đa', subjects: 'Văn, Sử', experience: 3, status: 'ACTIVE' },
-  { id: 3, full_name: 'Thầy Lê Vũ', phone: '0988777666', email: 'vu.le@example.com', area: 'Thanh Xuân', subjects: 'Tiếng Anh', experience: 7, status: 'INACTIVE' },
-  { id: 4, full_name: 'Cô Trần Mai', phone: '0977555444', email: 'mai.tran@example.com', area: 'Hoàn Kiếm', subjects: 'Hóa, Sinh', experience: 4, status: 'ACTIVE' },
+const sampleStudents = [
+  { id: 1, full_name: 'Nguyễn Văn A', phone: '0987654321', email: 'a.nguyen@example.com', area: 'Cầu Giấy', level: 'Lớp 10', status: 'ACTIVE' },
+  { id: 2, full_name: 'Trần Thị B', phone: '0912345678', email: 'b.tran@example.com', area: 'Đống Đa', level: 'Lớp 12', status: 'ACTIVE' },
+  { id: 3, full_name: 'Lê Văn C', phone: '0977778888', email: 'c.le@example.com', area: 'Thanh Xuân', level: 'Lớp 8', status: 'INACTIVE' },
+  { id: 4, full_name: 'Phạm Thị D', phone: '0966667777', email: 'd.pham@example.com', area: 'Hoàn Kiếm', level: 'Lớp 11', status: 'ACTIVE' },
+  { id: 5, full_name: 'Hoàng Văn E', phone: '0933334444', email: 'e.hoang@example.com', area: 'Ba Đình', level: 'Lớp 9', status: 'INACTIVE' },
 ];
 
-export default function TutorsPage() {
+export default function StudentList() {
   const { user } = useAuth();
-  const [tutors, setTutors] = useState([]);
-  const [filteredTutors, setFilteredTutors] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [filteredStudents, setFilteredStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [formData, setFormData] = useState({
-    full_name: '',
-    phone: '',
-    email: '',
-    area: '',
-    subjects: '',
-    experience: ''
-  });
+  const [formData, setFormData] = useState({ full_name: '', phone: '', email: '', area: '', level: '' });
 
   // Kiểm tra quyền admin
   if (user?.role !== 'admin') {
     return (
       <div className="p-6 text-center">
         <div className="bg-red-50 text-red-600 p-4 rounded-lg inline-block">
-          ⚠️ Bạn không có quyền truy cập trang quản lý gia sư.
+          ⚠️ Bạn không có quyền truy cập trang quản lý học viên.
         </div>
       </div>
     );
   }
 
+  // Load dữ liệu mẫu
   useEffect(() => {
     setTimeout(() => {
-      setTutors(sampleTutors);
-      setFilteredTutors(sampleTutors);
+      setStudents(sampleStudents);
+      setFilteredStudents(sampleStudents);
       setLoading(false);
     }, 500);
   }, []);
 
+  // Lọc theo search và status
   useEffect(() => {
-    let result = tutors;
+    let result = students;
     if (searchTerm) {
-      result = result.filter(t =>
-        t.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.phone.includes(searchTerm) ||
-        t.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.area.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        t.subjects.toLowerCase().includes(searchTerm.toLowerCase())
+      result = result.filter(s =>
+        s.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.phone.includes(searchTerm) ||
+        s.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        s.area.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
     if (statusFilter !== 'ALL') {
-      result = result.filter(t => t.status === statusFilter);
+      result = result.filter(s => s.status === statusFilter);
     }
-    setFilteredTutors(result);
-  }, [searchTerm, statusFilter, tutors]);
+    setFilteredStudents(result);
+  }, [searchTerm, statusFilter, students]);
 
   const stats = {
-    total: tutors.length,
-    active: tutors.filter(t => t.status === 'ACTIVE').length,
-    inactive: tutors.filter(t => t.status === 'INACTIVE').length,
+    total: students.length,
+    active: students.filter(s => s.status === 'ACTIVE').length,
+    inactive: students.filter(s => s.status === 'INACTIVE').length,
   };
 
   const handleInputChange = (e) => {
@@ -76,14 +71,9 @@ export default function TutorsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const newTutor = {
-      id: tutors.length + 1,
-      ...formData,
-      experience: parseInt(formData.experience) || 0,
-      status: 'ACTIVE'
-    };
-    setTutors([...tutors, newTutor]);
-    setFormData({ full_name: '', phone: '', email: '', area: '', subjects: '', experience: '' });
+    const newStudent = { id: students.length + 1, ...formData, status: 'ACTIVE' };
+    setStudents([...students, newStudent]);
+    setFormData({ full_name: '', phone: '', email: '', area: '', level: '' });
     setShowForm(false);
   };
 
@@ -91,7 +81,7 @@ export default function TutorsPage() {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <span className="ml-3 text-gray-600">Đang tải danh sách gia sư...</span>
+        <span className="ml-3 text-gray-600">Đang tải danh sách học viên...</span>
       </div>
     );
   }
@@ -100,15 +90,15 @@ export default function TutorsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">👨‍🏫 Quản lý Gia sư</h1>
-        <p className="text-gray-500">Quản lý đội ngũ gia sư, theo dõi kinh nghiệm, môn dạy và trạng thái</p>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">👨‍🎓 Quản lý Học viên</h1>
+        <p className="text-gray-500">Quản lý thông tin học viên, theo dõi trạng thái và lịch sử đăng ký</p>
       </div>
 
       {/* Cards thống kê */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
           <div>
-            <p className="text-sm text-gray-500">Tổng số gia sư</p>
+            <p className="text-sm text-gray-500">Tổng số học viên</p>
             <p className="text-2xl font-bold text-gray-800">{stats.total}</p>
           </div>
           <div className="p-3 bg-blue-50 rounded-full">
@@ -135,13 +125,13 @@ export default function TutorsPage() {
         </div>
       </div>
 
-      {/* Thanh công cụ */}
+      {/* Thanh công cụ tìm kiếm + lọc + nút thêm */}
       <div className="flex flex-col md:flex-row justify-between gap-4 bg-white p-4 rounded-xl shadow-sm">
         <div className="relative flex-1">
           <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           <input
             type="text"
-            placeholder="Tìm kiếm theo tên, SĐT, email, khu vực, môn dạy..."
+            placeholder="Tìm kiếm theo tên, SĐT, email, khu vực..."
             className="pl-10 pr-4 py-2 w-full border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -162,22 +152,21 @@ export default function TutorsPage() {
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-1"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            Thêm gia sư
+            Thêm học viên
           </button>
         </div>
       </div>
 
-      {/* Form thêm gia sư */}
+      {/* Form thêm học viên (hiện khi showForm = true) */}
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h3 className="text-lg font-semibold mb-4">Thêm gia sư mới</h3>
+          <h3 className="text-lg font-semibold mb-4">Thêm học viên mới</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input type="text" name="full_name" placeholder="Họ tên *" value={formData.full_name} onChange={handleInputChange} className="border border-gray-200 p-2 rounded-lg focus:ring-blue-200" required />
             <input type="text" name="phone" placeholder="Số điện thoại *" value={formData.phone} onChange={handleInputChange} className="border border-gray-200 p-2 rounded-lg" required />
             <input type="email" name="email" placeholder="Email" value={formData.email} onChange={handleInputChange} className="border border-gray-200 p-2 rounded-lg" />
             <input type="text" name="area" placeholder="Khu vực" value={formData.area} onChange={handleInputChange} className="border border-gray-200 p-2 rounded-lg" />
-            <input type="text" name="subjects" placeholder="Môn dạy (vd: Toán, Lý)" value={formData.subjects} onChange={handleInputChange} className="border border-gray-200 p-2 rounded-lg" />
-            <input type="number" name="experience" placeholder="Số năm kinh nghiệm" value={formData.experience} onChange={handleInputChange} className="border border-gray-200 p-2 rounded-lg" />
+            <input type="text" name="level" placeholder="Trình độ (VD: Lớp 10)" value={formData.level} onChange={handleInputChange} className="border border-gray-200 p-2 rounded-lg" />
           </div>
           <div className="mt-4 flex gap-2">
             <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">Lưu</button>
@@ -186,7 +175,7 @@ export default function TutorsPage() {
         </form>
       )}
 
-      {/* Bảng danh sách gia sư */}
+      {/* Bảng danh sách học viên */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -197,27 +186,25 @@ export default function TutorsPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SĐT</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Khu vực</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Môn dạy</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kinh nghiệm</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trình độ</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredTutors.map(tutor => (
-                <tr key={tutor.id} className="hover:bg-gray-50 transition">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{tutor.id}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{tutor.full_name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{tutor.phone}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{tutor.email}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{tutor.area}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{tutor.subjects}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{tutor.experience} năm</td>
+              {filteredStudents.map(student => (
+                <tr key={student.id} className="hover:bg-gray-50 transition">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{student.id}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{student.full_name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{student.phone}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{student.email}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{student.area}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{student.level}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${tutor.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {tutor.status === 'ACTIVE' ? 'Đang hoạt động' : 'Tạm ngưng'}
+                    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${student.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {student.status === 'ACTIVE' ? 'Đang hoạt động' : 'Tạm ngưng'}
                     </span>
-                  </td>
+                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button className="text-blue-600 hover:text-blue-800 font-medium mr-3">Sửa</button>
                     <button className="text-red-600 hover:text-red-800">Xóa</button>
@@ -227,9 +214,9 @@ export default function TutorsPage() {
             </tbody>
           </table>
         </div>
-        {filteredTutors.length === 0 && (
+        {filteredStudents.length === 0 && (
           <div className="text-center py-10 text-gray-400">
-            Không tìm thấy gia sư nào phù hợp.
+            Không tìm thấy học viên nào phù hợp.
           </div>
         )}
       </div>
