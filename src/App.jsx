@@ -1,174 +1,159 @@
 import React, { useState, useEffect } from "react";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 
 import Header from "./components/Header";
-
 import Banner from "./components/Banner";
-
 import ClassList from "./components/ClassList";
-
 import Workflow from "./components/Workflow";
-
 import Footer from "./components/Footer";
-
 import LoginForm from "./components/auth/LoginForm";
-
 import RegisterForm from "./components/auth/RegisterForm";
 
 // --- IMPORT CÁC TRANG DASHBOARD THEO ROLE ---
-
 import StudentPage from "./pages/StudentPage";
-
 import TutorPage from "./pages/TutorPage";
 
-function App() {
+// --- IMPORT 4 TRANG CON HỌC VIÊN (ĐÃ ĐỒNG BỘ CHỮ 'S' VỚI HEADER) ---
+import StudentRequests from "./components/student/StudentRequests";
+import StudentClasses from "./components/student/StudentClasses";
+import StudentSchedule from "./components/student/StudentSchedule";
+import StudentTuition from "./components/student/StudentTuition";
+
+export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeModal, setActiveModal] = useState(null);
 
-  // 1. Quản lý Không không gian hiển thị tổng thể (Mặc định ban đầu ở trang chủ "home")
-
-  const [activeTab, setActiveTab] = useState("home");
-
-  // 2. State quản lý User tổng của cả ứng dụng
-
+  // State quản lý User tổng của cả ứng dụng (Lazy Initialization để tối ưu hiệu năng)
   const [currentUser, setCurrentUser] = useState(() => {
     return JSON.parse(localStorage.getItem("user")) || null;
   });
 
-  // 3. Hàm đồng bộ trạng thái khi Đăng nhập / Đăng xuất thành công
-
-  const handleUserChange = () => {
-    const updatedUser = JSON.parse(localStorage.getItem("user")) || null;
-
-    setCurrentUser(updatedUser);
+  // Hàm đồng bộ trạng thái khi đăng nhập/đăng xuất thành công
+  const handleUserChange = (newUser) => {
+    setCurrentUser(newUser);
   };
 
-  // Tự động kiểm tra trạng thái bộ nhớ để điều phối không gian hiển thị khi tải trang hoặc đổi role
-
+  // Tự động điều hướng URL khi user thay đổi trạng thái
   useEffect(() => {
     if (currentUser) {
-      // Nếu có user, tự động chuyển về không gian chuẩn của role đó
-
-      setActiveTab(currentUser.role);
-    } else {
-      // Nếu không có user (đã đăng xuất), ép màn hình về trang chủ
-
-      setActiveTab("home");
+      // Nếu user đang ở trang chủ, tự động đẩy vào không gian làm việc của vai trò đó
+      if (location.pathname === "/") {
+        if (currentUser.role === "student") navigate("/student/requests");
+        else if (currentUser.role === "tutor") navigate("/tutor/classes");
+        else if (currentUser.role === "admin") navigate("/admin/dashboard");
+      }
     }
-  }, [currentUser]);
+  }, [currentUser, location.pathname, navigate]);
 
-  // 4. Logic bẫy bảo mật (Role Guard) tự động kiểm tra quyền truy cập vùng chức năng
-
-  useEffect(() => {
-    if (
-      activeTab === "student" &&
-      (!currentUser || currentUser.role !== "student")
-    ) {
-      alert("⚠️ Bạn không có quyền truy cập không gian Học viên!");
-
-      setActiveTab("home");
-    }
-
-    if (
-      activeTab === "tutor" &&
-      (!currentUser || currentUser.role !== "tutor")
-    ) {
-      alert("⚠️ Bạn không có quyền truy cập không gian Gia sư!");
-
-      setActiveTab("home");
-    }
-
-    if (
-      activeTab === "admin" &&
-      (!currentUser || currentUser.role !== "admin")
-    ) {
-      alert("⚠️ Bạn không có quyền truy cập hệ thống Quản trị!");
-
-      setActiveTab("home");
-    }
-  }, [activeTab, currentUser]);
-
-  // 5. Hàm render nội dung linh hoạt dựa trên vùng `activeTab` tổng thể
-
-  const renderContent = () => {
-    // TRƯỜNG HỢP Ở TRANG CHỦ HOẶC KHÁCH VÃNG LAI
-
-    if (activeTab === "home") {
-      return (
-        <>
-          {/* Truyền key để Banner tự render lại lời chào chuẩn chỉ theo currentUser tổng */}
-
-          <Banner
-            key={currentUser?.role || "guest"}
-            currentUser={currentUser}
-            onFindTutorClick={() => setActiveModal("login")}
-            onBeTutorClick={() => setActiveModal("register")}
-          />
-
-          <ClassList />
-
-          <Workflow />
-        </>
-      );
-    }
-
-    // TRƯỜNG HỢP KHÔNG GIAN HỌC VIÊN (STUDENT DASHBOARD)
-
-    if (activeTab === "student" && currentUser?.role === "student") {
-      return <StudentPage currentUser={currentUser} />;
-    }
-
-    // TRƯỜNG HỢP KHÔNG GIAN GIA SƯ (TUTOR DASHBOARD)
-
-    if (activeTab === "tutor" && currentUser?.role === "tutor") {
-      return <TutorPage currentUser={currentUser} />;
-    }
-
-    // TRƯỜNG HỢP KHÔNG GIAN ADMIN
-
-    if (activeTab === "admin" && currentUser?.role === "admin") {
-      return (
-        <div className="p-10 text-center font-bold text-xl text-red-600 min-h-[400px]">
-          ⚙️ Giao diện Quản trị Trung tâm (Đang phát triển...)
-        </div>
-      );
-    }
-
-    // Mặc định dự phòng nếu không khớp tab nào
-
-    return (
-      <div className="p-10 text-center text-gray-500 min-h-[400px]">
-        Trang không tồn tại hoặc bạn không có quyền.
-      </div>
-    );
-  };
+  // View Trang chủ công khai (Dành cho khách vãng lai)
+  const HomeView = (
+    <>
+      <Banner
+        key={currentUser?.role || "guest"}
+        currentUser={currentUser}
+        onFindTutorClick={() => setActiveModal("login")}
+        onBeTutorClick={() => setActiveModal("register")}
+      />
+      <ClassList />
+      <Workflow />
+    </>
+  );
 
   return (
     <div className="flex flex-col min-h-screen bg-white">
-      {/* Thanh Header dùng chung - Lắng nghe activeTab và re-render khi user thay đổi */}
-
+      {/* ĐÃ DỌN SẠCH: Bỏ hoàn toàn activeTab và onTabChange.
+        Header bây giờ sẽ tự động sáng xanh dựa trên URL trình duyệt.
+      */}
       <Header
-        key={currentUser ? `${currentUser.role}-${currentUser.name}` : "guest"}
-        activeTab={activeTab}
-        onTabChange={(tab) => setActiveTab(tab)}
+        currentUser={currentUser}
         onLoginClick={() => setActiveModal("login")}
         onRegisterClick={() => setActiveModal("register")}
         onUserChange={handleUserChange}
       />
 
-      {/* Thân trang chiếm trọn không gian trống giữa Header và Footer */}
+      {/* THÂN TRANG QUẢN LÝ ĐỊNH TUYẾN URL */}
+      <main className="flex-1 w-full flex flex-col">
+        <Routes>
+          {/* TRANG CHỦ CÔNG KHAI */}
+          <Route path="/" element={HomeView} />
+          <Route
+            path="/about"
+            element={
+              <div className="p-10 text-center text-gray-500">
+                Trang Giới thiệu (Đang cập nhật...)
+              </div>
+            }
+          />
 
-      <main className="flex-1 w-full flex flex-col">{renderContent()}</main>
+          {/* KHÔNG GIAN HỌC VIÊN + ĐỒNG BỘ 4 ROUTE CON KHỚP 100% VỚI HEADER */}
+          <Route
+            path="/student"
+            element={<StudentPage currentUser={currentUser} />}
+          >
+            <Route index element={<Navigate to="requests" replace />} />
+            <Route path="requests" element={<StudentRequests />} />
+            <Route path="classes" element={<StudentClasses />} />
+            <Route path="schedule" element={<StudentSchedule />} />
+            <Route path="tuition" element={<StudentTuition />} />
+          </Route>
+
+          {/* KHÔNG GIAN GIA SƯ */}
+          <Route
+            path="/tutor"
+            element={<TutorPage currentUser={currentUser} />}
+          >
+            <Route index element={<Navigate to="classes" replace />} />
+            <Route
+              path="classes"
+              element={<div>Giao diện Lớp phụ trách (Đang phát triển...)</div>}
+            />
+            <Route
+              path="schedule"
+              element={<div>Giao diện Lịch dạy (Đang phát triển...)</div>}
+            />
+            <Route
+              path="profile"
+              element={
+                <div>Giao diện Hồ sơ & Lịch rảnh (Đang phát triển...)</div>
+              }
+            />
+          </Route>
+
+          {/* KHÔNG GIAN ADMIN */}
+          <Route
+            path="/admin/*"
+            element={
+              <div className="p-10 text-center font-bold text-xl text-red-600 min-h-[400px]">
+                ⚙️ Giao diện Quản trị Hệ thống EduConnection (Đang phát
+                triển...)
+              </div>
+            }
+          />
+
+          {/* BẪY URL: Người dùng gõ bậy hoặc không khớp quyền -> Tự động trả về trang chủ */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
 
       <Footer />
 
-      {/* --- CÁC DIALOG/MODAL CHỨC NĂNG --- */}
-
+      {/* --- MODALS THỰC THI CHỨC NĂNG --- */}
       {activeModal === "login" && (
         <LoginForm
           onClose={() => setActiveModal(null)}
           switchToRegister={() => setActiveModal("register")}
           onLoginSuccess={() => {
-            handleUserChange();
-
+            // Lấy dữ liệu mới nhất vừa lưu từ LoginForm để cập nhật state tổng
+            const loggedInUser = JSON.parse(localStorage.getItem("user"));
+            handleUserChange(loggedInUser);
             setActiveModal(null);
           }}
         />
@@ -183,5 +168,3 @@ function App() {
     </div>
   );
 }
-
-export default App;

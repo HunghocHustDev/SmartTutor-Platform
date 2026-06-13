@@ -1,48 +1,48 @@
 import React from "react";
-
 import { Link, Outlet, useLocation } from "react-router-dom";
 
-function StudentPage({ currentUser }) {
+function StudentPage() {
   const location = useLocation();
 
-  // Danh sách 4 mục chức năng hiển thị ở Bảng điều khiển Sidebar
+  {
+    location.pathname === "/student" && (
+      <div className="p-6 bg-blue-50 rounded-xl mb-6">
+        <h2 className="text-xl font-bold text-blue-800">
+          Chào mừng bạn quay lại, {user?.name}!
+        </h2>
+        <p>Hệ thống EduConnection sẵn sàng hỗ trợ bạn.</p>
+      </div>
+    );
+  }
 
+  // Danh sách 4 mục chức năng hiển thị ở Sidebar (đã đồng bộ thứ tự chuẩn)
   const sidebarSubItems = [
-    { label: "Tạo yêu cầu", path: "/student/request", icon: "➕" },
-
+    { label: "Tạo yêu cầu", path: "/student/requests", icon: "➕" },
     { label: "Lớp của tôi", path: "/student/classes", icon: "📚" },
-
     { label: "Lịch học", path: "/student/schedule", icon: "📅" },
-
     { label: "Học phí", path: "/student/tuition", icon: "💵" },
   ];
 
   return (
     <div className="flex min-h-[calc(100vh-70px)] bg-gray-50">
       {/* ==========================================
-
-          SIDEBAR - BẢNG ĐIỀU KHIỂN DỌC BÊN TRÁI
-
+          SIDEBAR - THANH ĐIỀU HƯỚNG DỌC BÊN TRÁI
           ========================================== */}
-
       <aside className="w-64 bg-white border-r border-gray-200 p-5 flex flex-col gap-6 shrink-0 shadow-sm">
         <div className="pb-3 border-b border-gray-100">
           <h3 className="text-xs font-bold text-gray-400 tracking-wider uppercase mb-1">
-            Bảng điều khiển
+            Menu học viên
           </h3>
-
           <p className="text-xs text-purple-600 font-semibold bg-purple-50 px-2 py-1 rounded inline-block">
             Không gian Học viên
           </p>
         </div>
 
         {/* Danh sách các Link điều hướng con */}
-
         <nav className="flex flex-col gap-1 flex-1">
           {sidebarSubItems.map((item, index) => {
-            // Kiểm tra link con nào đang trùng với đường dẫn hiện tại để kích hoạt màu nền
-
-            const isSubActive = location.pathname === item.path;
+            // Sử dụng startsWith để giữ trạng thái active chính xác hơn nếu có đường dẫn con sâu hơn
+            const isSubActive = location.pathname.startsWith(item.path);
 
             return (
               <Link
@@ -55,36 +55,19 @@ function StudentPage({ currentUser }) {
                 }`}
               >
                 <span className="text-base">{item.icon}</span>
-
                 <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
-
-        {/* Widget nhỏ hiển thị nhanh thông tin tài khóa */}
-
-        <div className="bg-gray-50 border border-gray-100 p-3 rounded-xl text-center">
-          <p className="text-[11px] text-gray-400 font-medium uppercase">
-            Mã học viên
-          </p>
-
-          <p className="text-sm font-bold text-gray-700 font-mono">
-            HV-{currentUser?.id || "001"}
-          </p>
-        </div>
       </aside>
 
       {/* ==========================================
-
-          MAIN NỘI DUNG ĐỘNG BÊN PHẢI (CHỨA OUTLET)
-
+          MAIN CONTENT - NƠI HIỂN THỊ NỘI DUNG CÁC FILE CON
           ========================================== */}
-
       <main className="flex-1 p-8 max-w-6xl mx-auto w-full transition-all duration-300">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 min-h-[500px]">
-          {/* Outlet giữ vai trò nạp tầng giao diện động (request, classes, schedule, tuition) */}
-
+          {/* Outlet nạp giao diện động của 4 file mục con */}
           <Outlet />
         </div>
       </main>
