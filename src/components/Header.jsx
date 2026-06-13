@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
 
 // ==========================================
+
 // 1. COMPONENT LOGO
+
 // ==========================================
+
 const HeaderLogo = ({ onTabChange }) => (
   <div className="header-logo">
     <h1
@@ -21,81 +24,83 @@ const HeaderLogo = ({ onTabChange }) => (
 );
 
 // ==========================================
-// 2. COMPONENT NAV MENU (Thay đổi mục theo Role và kích hoạt Tab)
+
+// 2. COMPONENT NAV MENU (Đồng bộ value theo 4 mục Student và 3 mục Tutor)
+
 // ==========================================
+
 const HeaderNav = ({ user, activeTab, onTabChange }) => {
   let menuItems = [];
 
   // Phân chia danh sách các mục trên Header dựa theo Vai trò (Role)
+
   if (!user || !user.role) {
     // Menu dành cho khách vãng lai chưa đăng nhập
+
     menuItems = [
       { label: "Trang chủ", value: "home", href: "/" },
+
       { label: "Tìm gia sư", value: "home", href: "#tim-gia-su" },
+
       { label: "Lớp mới tuyển", value: "home", href: "#lop-moi" },
+
       { label: "Trở thành gia sư", value: "home", href: "#dang-ky-gia-su" },
+
       { label: "Giới thiệu", value: "home", href: "#gioi-thieu" },
     ];
   } else if (user.role === "student") {
-    // Menu hiển thị riêng cho Học viên (Bản đồ hóa tương ứng sang các state activeTab của App)
+    // CHUẨN HÓA: 4 mục con của Học viên đều mang giá trị value tổng là "student"
+
     menuItems = [
       { label: "Trang chủ", value: "home", href: "/" },
-      { label: "Lớp đang học", value: "my-classes", href: "#student-classes" },
-      {
-        label: "Thời khóa biểu",
-        value: "my-classes",
-        href: "#student-schedule",
-      }, // Cho chung vào trang lớp học hoặc tùy biến sau
+
+      { label: "Lớp đang học", value: "student", href: "#student-classes" },
+
+      { label: "Thời khóa biểu", value: "student", href: "#student-schedule" },
+
       {
         label: "Học phí & Thanh toán",
-        value: "tuition",
+
+        value: "student",
+
         href: "#student-tuition",
       },
-      { label: "Gửi nhu cầu mới", value: "request", href: "#create-request" },
+
+      { label: "Gửi nhu cầu mới", value: "student", href: "#create-request" },
     ];
   } else if (user.role === "tutor") {
-    // Menu hiển thị riêng cho Gia sư
+    // CHUẨN HÓA: 3 mục con của Gia sư đều mang giá trị value tổng là "tutor"
+
     menuItems = [
       { label: "Trang chủ", value: "home", href: "/" },
-      {
-        label: "Lớp phụ trách",
-        value: "tutor-classes",
-        href: "#tutor-classes",
-      },
-      { label: "Lịch dạy", value: "tutor-schedule", href: "#tutor-schedule" },
-      {
-        label: "Hồ sơ & Lịch rảnh",
-        value: "tutor-profile",
-        href: "#tutor-profile",
-      },
+
+      { label: "Lớp phụ trách", value: "tutor", href: "#tutor-classes" },
+
+      { label: "Lịch dạy", value: "tutor", href: "#tutor-schedule" },
+
+      { label: "Hồ sơ & Lịch rảnh", value: "tutor", href: "#tutor-profile" },
     ];
   } else if (user.role === "admin") {
-    // Menu hiển thị riêng cho Nhân viên quản trị hệ thống
+    // CHUẨN HÓA: Các mục quản trị mang giá trị value tổng là "admin"
+
     menuItems = [
-      { label: "Tổng quan", value: "home", href: "/" },
-      { label: "Quản lý Gia sư", value: "admin-tutors", href: "#admin-tutors" },
-      {
-        label: "Xử lý Nhu cầu",
-        value: "admin-requests",
-        href: "#admin-requests",
-      },
-      {
-        label: "Quản lý Lớp học",
-        value: "admin-classes",
-        href: "#admin-classes",
-      },
-      {
-        label: "Học phí & Thu chi",
-        value: "admin-finance",
-        href: "#admin-finance",
-      },
+      { label: "Tổng quan", value: "admin", href: "/" },
+
+      { label: "Quản lý Gia sư", value: "admin", href: "#admin-tutors" },
+
+      { label: "Xử lý Nhu cầu", value: "admin", href: "#admin-requests" },
+
+      { label: "Quản lý Lớp học", value: "admin", href: "#admin-classes" },
+
+      { label: "Học phí & Thu chi", value: "admin", href: "#admin-finance" },
     ];
   }
 
   return (
     <nav className="header-nav flex gap-[25px]">
       {menuItems.map((item, index) => {
-        // Kiểm tra xem mục này có đang được chọn hoạt động hay không để tạo style nổi bật (Active link)
+        // Kiểm tra trạng thái Active chính xác theo không gian tab lớn
+
         const isActive = activeTab === item.value;
 
         return (
@@ -103,10 +108,10 @@ const HeaderNav = ({ user, activeTab, onTabChange }) => {
             key={index}
             href={item.href}
             onClick={(e) => {
-              // Nếu có truyền hàm chuyển đổi tab từ App.jsx xuống, chặn chuyển trang của thẻ a và cập nhật State react
               if (onTabChange) {
-                e.preventDefault();
-                onTabChange(item.value);
+                e.preventDefault(); // Ngăn F5 tải lại trang làm mất State ứng dụng
+
+                onTabChange(item.value); // Kích hoạt đổi vùng không gian bên App.jsx
               }
             }}
             className={`no-underline font-medium transition-colors cursor-pointer ${
@@ -124,23 +129,29 @@ const HeaderNav = ({ user, activeTab, onTabChange }) => {
 };
 
 // ==========================================
-// 3. COMPONENT ACTIONS (Đăng nhập / Đăng ký / Thông tin cá nhân)
+
+// 3. COMPONENT ACTIONS (Sạch lỗi dấu ngoặc - Đồng bộ State tổng)
+
 // ==========================================
+
 const HeaderActions = ({
   user,
+
   onLoginClick,
+
   onRegisterClick,
+
   onLogout,
+
   handleFakeLogin,
 }) => {
-  // Trạng thái bật/tắt menu chọn tài khoản ảo để test nhanh
   const [showFakeBox, setShowFakeBox] = useState(false);
 
-  // TRƯỜNG HỢP 1: CHƯA ĐĂNG NHẬP (Hiện nút Đăng nhập, Đăng ký + Nút chọn tài khoản ảo để test)
+  // TRƯỜNG HỢP 1: CHƯA ĐĂNG NHẬP
+
   if (!user || !user.role) {
     return (
       <div className="header-actions flex gap-[12px] relative items-center">
-        {/* Nút hỗ trợ TEST FRONTEND NHANH (Xóa bỏ nút này khi làm xong hoàn toàn dự án) */}
         <button
           onClick={() => setShowFakeBox(!showFakeBox)}
           className="px-2 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600 font-mono"
@@ -148,33 +159,38 @@ const HeaderActions = ({
           ⚙️ Test Roles
         </button>
 
-        {/* Hộp thoại bật lên cho chọn nhanh các Tài khoản ảo */}
         {showFakeBox && (
           <div className="absolute right-0 top-10 bg-white border border-gray-200 shadow-xl p-3 rounded-lg flex flex-col gap-2 z-50 w-48 text-sm">
             <p className="font-bold text-gray-500 text-xs border-b pb-1">
               CHỌN TÀI KHOẢN ẢO
             </p>
+
             <button
               onClick={() => {
                 handleFakeLogin("student", "Nguyễn Khánh An");
+
                 setShowFakeBox(false);
               }}
               className="text-left py-1 px-2 hover:bg-purple-50 text-purple-700 rounded font-medium"
             >
               1. Học viên (An)
             </button>
+
             <button
               onClick={() => {
                 handleFakeLogin("tutor", "Thầy giáo Ngô Bảo");
+
                 setShowFakeBox(false);
               }}
               className="text-left py-1 px-2 hover:bg-green-50 text-green-700 rounded font-medium"
             >
               2. Gia sư (Bảo)
             </button>
+
             <button
               onClick={() => {
                 handleFakeLogin("admin", "Admin Trung Tâm");
+
                 setShowFakeBox(false);
               }}
               className="text-left py-1 px-2 hover:bg-red-50 text-red-700 rounded font-medium"
@@ -190,6 +206,7 @@ const HeaderActions = ({
         >
           Đăng nhập
         </button>
+
         <button
           onClick={onRegisterClick}
           className="px-[18px] py-2 bg-blue-600 text-white border-none rounded-[6px] font-semibold cursor-pointer hover:bg-blue-700 transition-colors text-sm"
@@ -200,15 +217,19 @@ const HeaderActions = ({
     );
   }
 
-  // TRƯỜNG HỢP 2: ĐÃ ĐĂNG NHẬP (Hiện nhãn Role, Tên User và nút Đăng xuất)
+  // TRƯỜNG HỢP 2: ĐÃ ĐĂNG NHẬP
+
   const roleStyles = {
     admin: { label: "Nhân viên", style: "bg-red-100 text-red-700" },
+
     tutor: { label: "Gia sư", style: "bg-green-100 text-green-700" },
+
     student: { label: "Học viên", style: "bg-purple-100 text-purple-700" },
   };
 
   const currentStyle = roleStyles[user.role] || {
     label: "Thành viên",
+
     style: "bg-gray-100",
   };
 
@@ -220,10 +241,12 @@ const HeaderActions = ({
         >
           {currentStyle.label}
         </span>
+
         <span className="text-gray-700 font-medium max-w-[150px] truncate">
           {user.name}
         </span>
       </div>
+
       <button
         onClick={onLogout}
         className="px-4 py-2 bg-gray-100 text-gray-600 rounded-[6px] font-semibold border-none cursor-pointer hover:bg-red-50 hover:text-red-600 transition-colors text-sm"
@@ -235,56 +258,64 @@ const HeaderActions = ({
 };
 
 // ==========================================
+
 // 4. COMPONENT CHÍNH EXPORT ĐỂ SỬ DỤNG
+
 // ==========================================
-// Nhận thêm activeTab và onTabChange từ App.jsx để đồng bộ hành vi click nhảy giao diện
+
 export default function Header({
   onLoginClick,
+
   onRegisterClick,
+
   activeTab,
+
   onTabChange,
+
+  onUserChange, // Nhận prop callback để thông báo cập nhật user tổng lên App.jsx
 }) {
-  // Quản lý State của User cục bộ
   const [user, setUser] = useState(null);
 
-  // Đọc trạng thái đăng nhập từ localStorage khi component được load lên
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
+
     if (savedUser) {
       setUser(JSON.parse(savedUser));
     }
   }, []);
 
-  // Hàm tạo phiên đăng nhập giả để kiểm tra đổi giao diện Frontend
+  // Đã sửa: Gỡ bỏ reload cứng, cập nhật state đồng bộ qua luồng dữ liệu React
+
   const handleFakeLogin = (role, name) => {
     const fakeUserData = { role, name, token: "fake-jwt-token-12345" };
+
     localStorage.setItem("user", JSON.stringify(fakeUserData));
+
     setUser(fakeUserData);
 
-    if (onTabChange) {
-      onTabChange("home"); // Đưa trạng thái tab về home khi đổi vai trò ảo để đồng bộ tránh lỗi hiển thị lệch
-    }
-    window.location.reload();
+    if (onUserChange) onUserChange(); // Cập nhật user tổng để làm mới giao diện Banner lời chào
+
+    if (onTabChange) onTabChange(role); // Tự động mở vùng điều hướng của vai trò đó ngay lập tức
   };
 
-  // Hàm xử lý đăng xuất
+  // Đã sửa: Gỡ bỏ reload cứng, dọn sạch bộ nhớ và đẩy hướng mượt mà về trang chủ
+
   const handleLogout = () => {
     localStorage.removeItem("user");
+
     setUser(null);
-    if (onTabChange) {
-      onTabChange("home");
-    }
-    window.location.reload();
+
+    if (onUserChange) onUserChange(); // Xóa trạng thái đăng nhập của App.jsx
+
+    if (onTabChange) onTabChange("home"); // Đá luồng hiển thị về màn hình chính
   };
 
   return (
     <header className="main-header flex justify-between items-center px-10 py-[15px] bg-white shadow-[0_2px_4px_rgba(0,0,0,0.05)] sticky top-0 z-[100]">
       <HeaderLogo onTabChange={onTabChange} />
 
-      {/* Truyền thêm state activeTab và hàm điều hướng onTabChange để Header xử lý sự kiện click */}
       <HeaderNav user={user} activeTab={activeTab} onTabChange={onTabChange} />
 
-      {/* Khu vực xử lý các nút bấm và Đăng xuất */}
       <HeaderActions
         user={user}
         onLoginClick={onLoginClick}
