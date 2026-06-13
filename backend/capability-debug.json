@@ -1,0 +1,23 @@
+{
+    "created":  {
+                    "capability_id":  6,
+                    "subject_id":  6,
+                    "name":  "Debug Subject 80475",
+                    "level":  "Lop 12",
+                    "teaching_level":  "ADVANCED",
+                    "years_experience":  1
+                },
+    "listed":  {
+                   "value":  [
+                                 {
+                                     "capability_id":  6,
+                                     "subject_id":  6,
+                                     "name":  "Debug Subject 80475",
+                                     "level":  "Lop 12",
+                                     "teaching_level":  "ADVANCED",
+                                     "years_experience":  1
+                                 }
+                             ],
+                   "Count":  1
+               }
+}

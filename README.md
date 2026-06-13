@@ -1,16 +1,68 @@
-# React + Vite
+# SmartTutor Platform
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+SmartTutor Platform là project môn Database cho trung tâm gia sư, gồm:
 
-Currently, two official plugins are available:
+- `frontend/`: React + Vite
+- `backend/`: FastAPI + SQLAlchemy + pyodbc
+- `sql/`: schema và seed SQL Server
+- `docs/`: tài liệu trạng thái, contract, và kế hoạch hoàn thiện
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Database
 
-## React Compiler
+Schema nguồn sự thật là `sql/schema.sql`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Chạy seed:
 
-## Expanding the ESLint configuration
+```powershell
+sqlcmd -C -S localhost -d TutorCenterDB -U sa -P 123456 -i sql\minimal_seed.sql
+sqlcmd -C -S localhost -d TutorCenterDB -U sa -P 123456 -i sql\sample_data.sql
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Backend
+
+Copy env mẫu:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+Chạy backend:
+
+```powershell
+cd backend
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Kiểm tra:
+
+- `http://localhost:8000/health`
+- `http://localhost:8000/docs`
+
+## Frontend
+
+Copy env mẫu:
+
+```powershell
+Copy-Item frontend\.env.example frontend\.env
+```
+
+Chạy frontend:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Build frontend:
+
+```powershell
+cd frontend
+npm run build
+```
+
+## Notes
+
+- `backend/.venv` đã được chuẩn bị sẵn, nên ưu tiên `uv`.
+- Frontend mặc định gọi backend tại `http://localhost:8000` thông qua `VITE_API_BASE_URL`.
+- `docs/api_contract.md` là contract canonical cho backend/frontend.

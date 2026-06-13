@@ -1,0 +1,15 @@
+HTTP CRUD smoke test passed
+- auth: PASS
+- subjects: PASS
+- students: PASS
+- tutors: PASS
+- tutor_capabilities: PASS
+- tutor_availability: PASS
+- learning_requests: PASS
+- assignments: PASS
+- classes: PASS
+- schedules: PASS
+- sessions: PASS
+- invoices: PASS
+- payments: PASS
+- delete_lifecycle: PASS
