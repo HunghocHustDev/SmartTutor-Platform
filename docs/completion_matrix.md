@@ -1,14 +1,14 @@
 # SmartTutor Platform - Completion Matrix
 
-Last updated: 2026-06-13
+Last updated: 2026-06-14
 
 This matrix is based on:
 
-- real HTTP smoke test via `uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8021`
+- auth-aware real HTTP smoke test via `uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-email staff1@smarttutor.local --staff-password staff123`
 - direct code audit of `backend/app/*` and `frontend/src/*`
 - backend compile check with `uv run python -m compileall backend/app`
 - frontend build check with `npm run build`
-- SQL Server-backed local backend runtime on 2026-06-13
+- SQL Server-backed local backend runtime on 2026-06-14
 
 ## Backend CRUD Coverage
 
@@ -25,13 +25,13 @@ This matrix is based on:
 | `CLASS_SCHEDULE` | `POST /schedules` | `GET /schedules` | `GET /schedules/{id}` | `PUT /schedules/{id}` | `DELETE /schedules/{id}` | PASS | HTTP-tested. Delete is soft deactivate to `INACTIVE`. |
 | `LESSON_SESSION` | `POST /sessions` | `GET /sessions` | `GET /sessions/{id}` | `PUT /sessions/{id}`, `PATCH /sessions/{id}/status` | `DELETE /sessions/{id}` | PASS | HTTP-tested. `PATCH` to `COMPLETED` verified. Delete is soft cancel to `CANCELED`. |
 | `TUITION_INVOICE` | `POST /invoices` | `GET /invoices` | `GET /invoices/{id}` | `PUT /invoices/{id}` | `DELETE /invoices/{id}` | PASS | HTTP-tested. Delete is soft cancel to `CANCELED`; duplicate period snapshot still returns `409`. |
-| `TUITION_PAYMENT` | `POST /payments` | `GET /payments` | `GET /payments/{id}` | `PUT /payments/{id}` | `DELETE /payments/{id}` | PASS | HTTP-tested. Delete is soft cancel to `CANCELED`; overpayment still returns clean `400`. |
+| `TUITION_PAYMENT` | `POST /payments` | `GET /payments` | `GET /payments/{id}` | `PUT /payments/{id}` | `DELETE /payments/{id}` | PASS | HTTP-tested for invoice-based payment. Smoke script now also covers class-id payment auto-invoice branch; pending live rerun. Delete is soft cancel to `CANCELED`; overpayment still returns clean `400`. |
 
 ## Backend Business Flow Coverage
 
 | Flow Step | Status | Evidence | Notes |
 | --- | --- | --- | --- |
-| Auth register + login | PASS | HTTP smoke test created a new account and logged in successfully | Real `/auth/register` and `/auth/login` both pass on local SQL Server-backed backend. |
+| Auth register + login | PASS | HTTP smoke test registered a fresh student, logged in that student, and logged in demo staff successfully | Real `/auth/register` and `/auth/login` both pass on local SQL Server-backed backend. |
 | Create learning request | PASS | HTTP smoke test created request `15` | Uses real DB and normalized subject/request fields. |
 | Assign tutor | PASS | HTTP smoke test created assignment `7` | Validates pending request and tutor capability. |
 | Create class from `assignment_id` | PASS | HTTP smoke test created class `6` | `POST /classes` is assignment-based only. |
@@ -41,6 +41,7 @@ This matrix is based on:
 | Create invoice | PASS | HTTP smoke test created invoice `6` | Real API flow passed. |
 | Create payment | PASS | HTTP smoke test created payment `4` | Uses SQL Server trigger-safe insert behavior. |
 | Reject overpayment with `400` | PASS | Earlier payment smoke test returned `400 Payment amount exceeds invoice remaining amount` | Enforced in service logic before insert/update. |
+| Create payment by `class_id` and auto-create invoice | PARTIAL | Smoke script now includes this path, compile passes | Needs live rerun against SQL Server to verify trigger-updated invoice status in response. |
 | Class list returns student/tutor/subject | PASS | HTTP smoke test verified created class payload contained all three display fields | Data resolved through normalized joins, not direct class FK columns. |
 
 ## Frontend Screen Coverage
@@ -49,16 +50,16 @@ This matrix is based on:
 | --- | --- | --- | --- | --- | --- |
 | Login/Register | YES | NO | YES | N/A | Fake login path in header/auth context removed; still no protected token-based route guard beyond local auth state. |
 | Dashboard | YES | NO | N/A | N/A | Only summary card flow is wired. |
-| Students | YES | NO | YES | NO | Edit button exists but update flow is not wired yet. |
-| Tutors | YES | NO | YES | NO | Edit button exists but update flow is not wired yet. |
-| Subjects | NO | NO | NO | NO | No dedicated subject management screen exists in `frontend/src/pages`. |
-| Learning Requests | YES | NO | YES | NO | Cancel works; edit/update UI is not wired yet. |
-| Assignments | NO | NO | NO | NO | No assignment management screen exists yet. |
-| Classes | YES | NO | NO | PARTIAL | List and cancel use real API; create/update/detail UI is not wired. |
-| Schedules | NO | NO | NO | NO | No schedule management screen exists yet. |
-| Sessions | NO | NO | NO | NO | No session management screen exists yet. |
-| Invoices | NO | NO | NO | NO | No invoice management screen exists yet. |
-| Payments | NO | NO | NO | NO | No payment management screen exists yet. |
+| Students | YES | NO | YES | YES | No dedicated detail drilldown yet; current verification is code audit plus successful frontend build. |
+| Tutors | YES | NO | YES | YES | No dedicated capability/availability management on the main list yet; current verification is code audit plus successful frontend build. |
+| Subjects | YES | NO | YES | YES | First-class page exists; still needs live HTTP-backed UI verification. |
+| Learning Requests | YES | NO | YES | YES | Staff edit action now opens the real form; still no route-level guard beyond local auth state. |
+| Assignments | YES | NO | YES | PARTIAL | Create and cancel are wired; no reassignment/update form yet. |
+| Classes | YES | NO | YES | YES | Detail view is still list-centric rather than a dedicated page/modal. |
+| Schedules | YES | NO | YES | YES | First-class page exists; still needs live HTTP-backed UI verification. |
+| Sessions | YES | NO | YES | PARTIAL | Create/cancel/quick status updates are wired; no full edit form for existing sessions yet. |
+| Invoices | YES | NO | YES | PARTIAL | Managed through `FinancePage`; create/cancel are wired, but no invoice edit form yet. |
+| Payments | YES | NO | YES | PARTIAL | Managed through `FinancePage`; create/cancel are wired, but no payment edit form yet. |
 
 ## SQL / Report Query Coverage
 
@@ -77,6 +78,6 @@ This matrix is based on:
 | Area | Status | Exact Gap |
 | --- | --- | --- |
 | Backend canonical CRUD parity | PARTIAL | `TUTOR_CAPABILITY` and `TUTOR_AVAILABILITY` do not have standalone detail endpoints; they are tutor-scoped only. |
-| Frontend subject/admin finance flows | FAIL | Screens for subjects, assignments, schedules, sessions, invoices, and payments are not implemented as first-class pages yet. |
-| Frontend update flows | PARTIAL | Students, tutors, learning requests, and classes show partial action UI but do not have full edit dialogs/forms wired yet. |
-| Backend input validation parity | PARTIAL | `teaching_mode` invalid-value validation was added for learning requests, classes, and tutor availability after HTTP smoke testing; other enum-like fields should still be reviewed the same way. |
+| Frontend screen coverage verification | PARTIAL | The first-class pages now exist, but the newer subjects/assignments/schedules/sessions/finance flows still need live end-to-end UI verification against the running backend. |
+| Frontend detail/update parity | PARTIAL | Assignment reassignment, session full-edit, and invoice/payment update flows are still not exposed even though several adjacent create/cancel actions are wired. |
+| Backend input validation parity | PARTIAL | Service-layer validation now covers common status, date/time, and numeric constraint cases before SQL Server, and shared updates now support explicit nullable-field clearing with consistent `updated_at` touches. Remaining work: negative HTTP coverage and centralized DB error translation. |

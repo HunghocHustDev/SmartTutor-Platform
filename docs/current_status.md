@@ -2,7 +2,7 @@
 
 ## Last Updated
 
-- 2026-06-13
+- 2026-06-14
 
 ## Source Of Truth
 
@@ -25,8 +25,12 @@ uv run python -m compileall backend/app
 
 ```powershell
 cd backend
-uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8021
+uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-email staff1@smarttutor.local --staff-password staff123
 ```
+
+- The smoke script now verifies real auth scopes instead of calling protected endpoints anonymously:
+  - logs in as demo `staff` for staff-only CRUD
+  - registers and logs in a fresh `student` for self-owned learning-request flow
 
 - The following groups were verified through real HTTP requests, not just code audit:
   - auth register/login
@@ -43,6 +47,13 @@ uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8021
   - invoices
   - payments
 - Payment insert works against SQL Server even with the `TUITION_PAYMENT` trigger enabled.
+- `POST /payments` can use either `invoice_id` or `class_id`.
+- When `POST /payments` uses `class_id` without `invoice_id`, the service now auto-creates a period invoice snapshot when needed:
+  - invoice status starts as `UNPAID`
+  - payment payload `status` remains a payment status and is no longer reused as invoice status
+  - snapshot totals count only `COMPLETED` sessions within `period_start` and `period_end`
+  - successful payments still run through remaining-balance validation before insert
+- Backend status docs no longer rely on the old unauthenticated smoke-script assumption for protected routes.
 - Overpayment is rejected with:
 
 ```json
@@ -65,6 +76,22 @@ uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8021
   - learning requests: `ONLINE`, `OFFLINE`, `BOTH`
   - tutor availability: `ONLINE`, `OFFLINE`, `BOTH`
   - classes: `ONLINE`, `OFFLINE`
+- Service-layer validation now rejects common create/update constraint failures before SQL Server for:
+  - profile/master statuses for students, tutors, and subjects
+  - duplicate subject name + level
+  - tutor experience and capability years experience
+  - tutor availability day/time/status
+  - learning request status and non-negative expected fee
+  - assignment status and staff id existence on update
+  - class tuition and start/end date windows
+  - schedule day/time/effective date/status
+  - session status, positive session number, paired start/end time, and schedule/class mismatch
+  - invoice period, completed session count, non-negative money values, and paid amount not exceeding due
+  - payment positive amount and valid payment status
+- Update semantics now preserve explicit client intent for fields sent as `null`:
+  - shared repository updates no longer skip `None` values, so nullable columns can be cleared through update payloads
+  - `updated_at` is touched automatically for shared update paths when at least one model field is applied
+  - direct service transitions such as soft-delete/cancel/status patch now touch `updated_at` before commit
 
 ## Verified Business Flow Status
 
@@ -80,6 +107,7 @@ The following flow has direct real-HTTP smoke-test evidence on the local SQL Ser
 - mark session `COMPLETED`: PASS
 - create invoice: PASS
 - create payment: PASS
+- create payment by `class_id` with auto-created invoice snapshot: compile-covered in smoke script, pending live rerun
 - reject overpayment with `400`: PASS
 - class response includes student/tutor/subject display data: PASS
 
@@ -104,20 +132,31 @@ npm run build
   - tutors
   - classes
   - learning requests
-
-## Exact Frontend Gaps
-
-- No dedicated page exists yet for:
   - subjects
   - assignments
   - schedules
   - sessions
-  - invoices
-  - payments
-- Students page create works, but update UI is not wired.
-- Tutors page create works, but update UI is not wired.
-- Learning requests page create works, cancel works, but edit/update UI is not wired.
-- Classes page list and cancel work, but create/update/detail UI is not wired.
+  - invoices/payments via `FinancePage`
+- First-class API-backed pages now exist in `frontend/src/pages` for:
+  - `SubjectsPage.jsx`
+  - `AssignmentsPage.jsx`
+  - `SchedulesPage.jsx`
+  - `SessionsPage.jsx`
+  - `FinancePage.jsx`
+- Students, tutors, learning requests, subjects, schedules, and classes all have wired create/edit forms in the current UI.
+- `LearningRequestsPage.jsx` now allows staff to open the edit form correctly instead of showing a dead "Sửa" action.
+- `FinancePage.jsx` now blocks tutor access in the UI before triggering invoice/payment API calls that are staff-or-student only.
+
+## Exact Frontend Gaps
+
+- No backend-connected detail drilldown/modal exists yet for:
+  - class detail beyond the main list row
+  - invoice detail
+  - payment detail
+- Assignments page supports create and cancel, but does not yet expose reassignment/update UI.
+- Sessions page supports create, cancel, and quick status updates, but does not yet expose a full edit form for existing sessions.
+- Finance page supports create and cancel flows, but does not yet expose invoice/payment update forms.
+- Frontend actor guards still rely mainly on local auth state plus backend enforcement; there is no dedicated route-protection layer yet.
 
 ## Seed Status
 
@@ -156,6 +195,11 @@ powershell -ExecutionPolicy Bypass -File .\sql\reset_demo_utf8.ps1 -Seed sample
 
 ## Next Concrete Batch
 
-- build first-class frontend screens for subjects, assignments, schedules, sessions, invoices, and payments
-- wire update flows for students, tutors, learning requests, and classes
+- verify the newly added staff finance/assignment/schedule/session screens against live backend requests, not just build/code audit
+- rerun the auth-aware CRUD smoke test against the active local backend and refresh evidence text if any endpoint behavior changed
+- rerun the auth-aware CRUD smoke test to verify the new class-id payment auto-invoice branch against SQL Server triggers
+- add focused negative HTTP tests for the service-layer validation paths added in this batch
+- add focused HTTP coverage for explicit nullable-field clearing and `updated_at` movement on update/cancel paths
+- add missing detail/update UX for assignments, sessions, invoices, and payments where the backend already supports it
+- consider adding route-level protection so invalid actor routes are blocked before render
 - keep `docs/completion_matrix.md` as the exact PASS/PARTIAL/FAIL source for future batches

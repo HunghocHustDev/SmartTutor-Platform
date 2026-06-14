@@ -34,6 +34,7 @@ export default function LearningRequestsPage() {
   const isStaff = user?.role === 'staff';
   const studentIdFilter = isStudent ? user?.id : null;
   const canCreate = isStudent;
+  const canEdit = isStudent || isStaff;
 
   useEffect(() => {
     if (isStudent && user?.id) {
@@ -214,7 +215,7 @@ export default function LearningRequestsPage() {
         )}
       </div>
 
-      {showForm && canCreate && (
+      {showForm && canEdit && (
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <h3 className="text-lg font-semibold mb-4">{editingId ? 'Cập nhật yêu cầu học' : 'Tạo yêu cầu học mới'}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -315,7 +316,7 @@ export default function LearningRequestsPage() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.preferred_schedule || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.status}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {(isStaff || isStudent) && (
+                    {canEdit && (
                       <button className="text-blue-600 hover:text-blue-800 font-medium mr-3" onClick={() => startEdit(item)}>
                         Sửa
                       </button>

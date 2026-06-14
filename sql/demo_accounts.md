@@ -213,6 +213,7 @@ Muc tieu test:
 Sau khi reset sample data, co the test nhanh:
 
 ```text
+POST /auth/login
 GET /subjects
 GET /learning-requests
 GET /classes
@@ -220,6 +221,15 @@ GET /sessions
 GET /invoices
 GET /payments
 GET /dashboard/summary
+```
+
+Luu y:
+
+- Cac endpoint business tren khong con la public sanity check.
+- Can dang nhap truoc va gui header:
+
+```text
+Authorization: Bearer <token>
 ```
 
 ## Ghi chu

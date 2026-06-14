@@ -316,6 +316,9 @@ If a field shape is not fully verified, it is marked `TODO`.
 - Purpose: record a payment.
 - Important request fields: `invoice_id` or `class_id`, `amount_paid` or `amount`, `payment_date` or `paid_at`, `payment_method` or `method`, `staff_id`, `note`, `status`.
 - Important behavior: service should validate invoice remaining amount before insert and reject overpayment with `Payment amount exceeds invoice remaining amount`.
+- Important behavior: when `class_id` is provided without `invoice_id`, the service auto-creates a `TUITION_INVOICE` snapshot for `period_start`/`period_end` if one does not already exist.
+- Important behavior: auto-created invoices use invoice status `UNPAID`; `status` in the payment payload is always interpreted as a `TUITION_PAYMENT` status such as `SUCCESS`, `CANCELED`, or `REFUNDED`.
+- Important behavior: auto-created invoice totals are calculated from `COMPLETED` lesson sessions inside the requested period, while `/classes/{id}/tuition-summary` remains realtime for the whole class.
 - Important response fields: payment object.
 
 ### `DELETE /payments/{id}`

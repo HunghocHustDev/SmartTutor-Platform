@@ -102,14 +102,15 @@ Phase 1 smoke test de xuat:
 ```powershell
 uv run python -m compileall app
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000
 ```
 
 Sau do kiem tra:
 
 - `GET /`
 - `GET /health`
-- `GET /subjects`
-- `GET /classes`
+- `POST /auth/login`
+- cac endpoint business bang Bearer token
 
 ## Cau hinh moi truong
 
@@ -196,6 +197,27 @@ FRONTEND_ORIGINS=http://localhost:3000,http://localhost:5173
 - `/sessions`
 - `/invoices`
 - `/payments`
+
+## Auth hien tai
+
+- Ngoai `GET /`, `GET /health`, `POST /auth/login`, va `POST /auth/register`, cac endpoint business deu yeu cau:
+
+```text
+Authorization: Bearer <dev-token-...>
+```
+
+- Script `tests/http_crud_smoke.py` hien dang verify bang 2 actor:
+  - `staff` demo de goi cac endpoint van hanh trung tam
+  - `student` moi dang ky de verify self-service auth scope cua learning request
+
+- Mac dinh smoke test dang dung:
+  - `staff1@smarttutor.local / staff123`
+
+- Co the override bang:
+
+```powershell
+uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-email staff1@smarttutor.local --staff-password staff123
+```
 
 ## Luu y schema
 

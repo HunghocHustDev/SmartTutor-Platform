@@ -224,3 +224,146 @@
 - Frontend still lacks first-class pages for subjects, assignments, schedules, sessions, invoices, and payments.
 - Frontend update/detail flows remain partial for students, tutors, learning requests, and classes.
 - More backend enum/status validations should be reviewed with the same HTTP-first approach used in this batch.
+
+## 2026-06-14 - Frontend Guard And Status-Doc Reconciliation
+
+### Changed Files
+
+- `frontend/src/pages/FinancePage.jsx`
+- `frontend/src/pages/LearningRequestsPage.jsx`
+- `docs/completion_matrix.md`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Fixed `LearningRequestsPage` so staff can actually open the wired edit form instead of seeing a dead "Sửa" action that never rendered the form.
+- Tightened `FinancePage` actor handling so tutor users are blocked in the UI before invoice/payment calls hit backend `403` guards.
+- Fixed payment-cancel refresh in `FinancePage` so invoice/payment reloads reuse the correct actor filter instead of always reloading unscoped data.
+- Reconciled `docs/current_status.md` and `docs/completion_matrix.md` with the real repository state now that first-class pages for subjects, assignments, schedules, sessions, and finance already exist.
+- Updated the remaining-gap notes to focus on unverified live UI flows and still-missing detail/update UX rather than pages that are already implemented.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `npm run build` in `frontend/`
+
+### Remaining Issues / Next Step
+
+- The newer frontend pages are now documented as present, but they still need live UI verification against the running backend, not just code audit and build success.
+- Assignment reassignment, full session editing, and invoice/payment update flows are still not exposed in the UI.
+
+## 2026-06-14 - Auth-Aware Smoke Test Alignment
+
+### Changed Files
+
+- `backend/tests/http_crud_smoke.py`
+- `backend/README.md`
+- `sql/demo_accounts.md`
+- `docs/current_status.md`
+- `docs/completion_matrix.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Reworked the backend HTTP smoke script so protected endpoints are no longer called anonymously.
+- Added Bearer-token support to the test request helper.
+- Split smoke-test actor usage into:
+  - demo `staff` login for staff-only CRUD flows
+  - freshly registered `student` login for self-scoped learning-request flows
+- Added required student registration fields so the auth/register flow matches the current backend validation rules.
+- Updated backend/docs guidance so smoke-test commands, verification notes, and API sanity-check advice all reflect the current auth model.
+
+### Validation Performed
+
+- Code-path review of the auth guard and router role requirements against the revised smoke script.
+- Full runtime verification is still pending on the active local backend for this exact revised script.
+
+### Remaining Issues / Next Step
+
+- Run the revised smoke test against the local backend and update any remaining PASS wording if endpoint behavior differs under real auth scopes.
+- After that, continue with validation-hardening work in the service layer.
+
+## 2026-06-14 - Service-Layer Validation Hardening
+
+### Changed Files
+
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/completion_matrix.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added shared service validation helpers for enum/status choices, non-negative/positive numeric values, date windows, schedule windows, session time pairing, and invoice money invariants.
+- Added clean `400` validation before SQL Server constraints for common create/update paths across students, tutors, subjects, tutor capabilities, tutor availability, learning requests, assignments, classes, schedules, sessions, invoices, and payments.
+- Added `409` validation for duplicate subject name + level before the unique constraint is hit.
+- Added session validation that checks `schedule_id` belongs to the target class before insert/update.
+- Kept nullable-field clear semantics and `updated_at` handling out of this batch because those are part of the next priority item.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+
+### Remaining Issues / Next Step
+
+- Add negative HTTP tests that assert the new validation messages and status codes.
+- Run the auth-aware smoke test once the local backend is active.
+- Continue with update semantics for clearing nullable fields and consistent `updated_at` handling.
+
+## 2026-06-14 - Update Semantics And updated_at Alignment
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/completion_matrix.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Changed shared repository update behavior so explicitly sent `null` values are applied instead of being silently skipped.
+- Added a shared `touch_model` helper that sets `updated_at` for models that have that column.
+- Made shared update paths touch `updated_at` whenever at least one model field is applied.
+- Added `updated_at` touches to direct service transitions that bypass shared update logic, including soft deactivate, cancel, assignment/request status changes, session status patch, and invoice/payment cancel.
+- Updated session status patch semantics so an explicit `content_note: null` clears the note.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+
+### Remaining Issues / Next Step
+
+- Add focused HTTP coverage proving nullable-field clearing and `updated_at` movement through real API calls.
+- Keep centralized DB error translation as a separate hardening batch.
+
+## 2026-06-14 - Payment Auto-Invoice Flow Hardening
+
+### Changed Files
+
+- `backend/app/services/business_service.py`
+- `backend/tests/http_crud_smoke.py`
+- `docs/api_contract.md`
+- `docs/current_status.md`
+- `docs/completion_matrix.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Hardened `POST /payments` when callers provide `class_id` without `invoice_id`.
+- Fixed the status semantics bug where payment payload `status` could be reused as an invoice status during auto invoice creation.
+- Auto-created invoices now always start as `UNPAID`; the payment row keeps its own `SUCCESS`, `CANCELED`, or `REFUNDED` status.
+- Added period-specific invoice snapshot calculation from `COMPLETED` lesson sessions inside `period_start` and `period_end`.
+- Added consistency checks for mismatched `invoice_id` + `class_id` and mismatched `student_id`.
+- Limited remaining-balance overpayment checks on create to `SUCCESS` payments, matching the rule that only successful payments count as paid money.
+- Extended the HTTP CRUD smoke script to cover class-id payment with auto-created invoice snapshot.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+
+### Remaining Issues / Next Step
+
+- Rerun the auth-aware HTTP smoke test against the active SQL Server-backed backend to verify the new auto-invoice branch with the payment trigger enabled.
+- Add negative HTTP cases for mismatched `invoice_id`/`class_id`, mismatched `student_id`, canceled invoices, and overpayment on auto-created invoices.

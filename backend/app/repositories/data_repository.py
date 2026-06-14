@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Iterable, Optional
 
 from sqlalchemy import String, cast, or_
@@ -22,10 +22,22 @@ from app.models import (
 )
 
 
+def touch_model(model):
+    if hasattr(model, "updated_at"):
+        model.updated_at = datetime.utcnow()
+    return model
+
+
 def apply_updates(model, data: dict):
+    changed = False
     for key, value in data.items():
-        if value is not None and hasattr(model, key):
+        if key == "updated_at":
+            continue
+        if hasattr(model, key):
             setattr(model, key, value)
+            changed = True
+    if changed:
+        touch_model(model)
     return model
 
 

@@ -31,6 +31,8 @@ const emptyPayment = {
 export default function FinancePage() {
   const { user } = useAuth();
   const isStaff = user?.role === 'staff';
+  const isStudent = user?.role === 'student';
+  const canView = isStaff || isStudent;
   const [classes, setClasses] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -44,9 +46,9 @@ export default function FinancePage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!canView || !user) return;
     let active = true;
-    const filters = user.role === 'student' ? { student_id: user.id } : {};
+    const filters = isStudent ? { student_id: user.id } : {};
     Promise.all([listInvoices(filters), listPayments(filters), listClasses(filters)])
       .then(([invoiceData, paymentData, classData]) => {
         if (!active) return;
@@ -59,7 +61,7 @@ export default function FinancePage() {
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [canView, isStudent, user]);
 
   const classMap = useMemo(() => Object.fromEntries(classes.map((item) => [item.id, item])), [classes]);
 
@@ -127,8 +129,9 @@ export default function FinancePage() {
     if (!window.confirm('Bạn có muốn hủy thanh toán này không?')) return;
     try {
       await deletePayment(id);
-      const freshPayments = await listPayments(user?.role === 'student' ? { student_id: user.id } : {});
-      const freshInvoices = await listInvoices();
+      const filters = isStudent ? { student_id: user.id } : {};
+      const freshPayments = await listPayments(filters);
+      const freshInvoices = await listInvoices(filters);
       setPayments(Array.isArray(freshPayments) ? freshPayments : []);
       setInvoices(Array.isArray(freshInvoices) ? freshInvoices : []);
     } catch (err) {
@@ -138,6 +141,10 @@ export default function FinancePage() {
 
   if (!user) {
     return <div className="rounded-lg bg-white p-6 shadow">Vui lòng đăng nhập để xem học phí.</div>;
+  }
+
+  if (!canView) {
+    return <div className="rounded-lg bg-red-50 p-4 text-red-600">Chá»‰ staff hoáº·c há»c viÃªn sá»Ÿ há»¯u má»›i xem Ä‘Æ°á»£c hÃ³a Ä‘Æ¡n vÃ  thanh toÃ¡n.</div>;
   }
 
   if (loading) {

@@ -63,6 +63,17 @@ DAY_LABELS = {
     7: "CN",
 }
 
+ACTIVE_INACTIVE_STATUSES = {"ACTIVE", "INACTIVE"}
+TUTOR_STATUSES = {"ACTIVE", "INACTIVE", "PAUSED"}
+TUTOR_AVAILABILITY_STATUSES = {"AVAILABLE", "UNAVAILABLE"}
+LEARNING_REQUEST_STATUSES = {"PENDING", "ASSIGNED", "CANCELED"}
+ASSIGNMENT_STATUSES = {"ASSIGNED", "CANCELED"}
+CLASS_STATUSES = {"ACTIVE", "PAUSED", "COMPLETED", "CANCELED"}
+SCHEDULE_STATUSES = {"ACTIVE", "INACTIVE"}
+SESSION_STATUSES = {"SCHEDULED", "COMPLETED", "STUDENT_ABSENT", "TUTOR_ABSENT", "CANCELED"}
+INVOICE_STATUSES = {"UNPAID", "PARTIALLY_PAID", "PAID", "OVERDUE", "CANCELED"}
+PAYMENT_STATUSES = {"SUCCESS", "CANCELED", "REFUNDED"}
+
 
 def _hash_password(password: str) -> str:
     return sha256(password.encode("utf-8")).hexdigest()
@@ -139,8 +150,8 @@ def _normalize_class_status(status: Optional[str]) -> Optional[str]:
         return None
     normalized = status.upper()
     if normalized == "FINISHED":
-        return "COMPLETED"
-    return normalized
+        normalized = "COMPLETED"
+    return _normalize_choice(normalized, CLASS_STATUSES, "status")
 
 
 def _normalize_invoice_status(status: Optional[str]) -> Optional[str]:
@@ -148,8 +159,8 @@ def _normalize_invoice_status(status: Optional[str]) -> Optional[str]:
         return None
     normalized = status.upper()
     if normalized == "PARTIAL":
-        return "PARTIALLY_PAID"
-    return normalized
+        normalized = "PARTIALLY_PAID"
+    return _normalize_choice(normalized, INVOICE_STATUSES, "status")
 
 
 def _normalize_payment_status(status: Optional[str]) -> Optional[str]:
@@ -165,6 +176,16 @@ def _normalize_payment_status(status: Optional[str]) -> Optional[str]:
     raise HTTPException(status_code=400, detail=f"Unsupported payment status: {status}")
 
 
+def _normalize_choice(value: Optional[str], allowed: set[str], field_name: str) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.upper()
+    if normalized not in allowed:
+        allowed_display = ", ".join(sorted(allowed))
+        raise HTTPException(status_code=400, detail=f"{field_name} must be one of: {allowed_display}")
+    return normalized
+
+
 def _normalize_mode(mode: Optional[str], allowed: set[str], field_name: str) -> Optional[str]:
     if mode is None:
         return None
@@ -173,6 +194,31 @@ def _normalize_mode(mode: Optional[str], allowed: set[str], field_name: str) -> 
         allowed_display = ", ".join(sorted(allowed))
         raise HTTPException(status_code=400, detail=f"{field_name} must be one of: {allowed_display}")
     return normalized
+
+
+def _validate_non_negative_decimal(value, field_name: str) -> None:
+    if value is not None and _decimal_money(value) < 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be greater than or equal to zero")
+
+
+def _validate_positive_decimal(value, field_name: str) -> None:
+    if value is not None and _decimal_money(value) <= 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be greater than zero")
+
+
+def _validate_non_negative_int(value: Optional[int], field_name: str) -> None:
+    if value is not None and value < 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be greater than or equal to zero")
+
+
+def _validate_positive_int(value: Optional[int], field_name: str) -> None:
+    if value is not None and value <= 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be greater than zero")
+
+
+def _validate_date_window(start_value, end_value, start_name: str, end_name: str) -> None:
+    if start_value is not None and end_value is not None and end_value < start_value:
+        raise HTTPException(status_code=400, detail=f"{end_name} must be on or after {start_name}")
 
 
 def student_to_response(student: Student) -> dict:
@@ -394,6 +440,44 @@ def _validate_schedule_window(day_of_week: Optional[int], start_time, end_time) 
         raise HTTPException(status_code=400, detail="start_time must be earlier than end_time")
 
 
+def _validate_session_window(start_time, end_time) -> None:
+    if (start_time is None) != (end_time is None):
+        raise HTTPException(status_code=400, detail="start_time and end_time must be provided together")
+    if start_time and end_time and start_time >= end_time:
+        raise HTTPException(status_code=400, detail="start_time must be earlier than end_time")
+
+
+def _validate_invoice_values(
+    period_start,
+    period_end,
+    completed_sessions: Optional[int],
+    tuition_fee_per_session,
+    amount_due,
+    amount_paid,
+) -> None:
+    _validate_date_window(period_start, period_end, "period_start", "period_end")
+    _validate_non_negative_int(completed_sessions, "completed_sessions")
+    _validate_non_negative_decimal(tuition_fee_per_session, "tuition_fee_per_session")
+    _validate_non_negative_decimal(amount_due, "amount_due")
+    _validate_non_negative_decimal(amount_paid, "amount_paid")
+    if amount_due is not None and amount_paid is not None and _decimal_money(amount_paid) > _decimal_money(amount_due):
+        raise HTTPException(status_code=400, detail="amount_paid must be less than or equal to amount_due")
+
+
+def _invoice_snapshot_from_class_period(study_class: StudyClass, period_start: date, period_end: date) -> dict:
+    completed_sessions = [
+        session
+        for session in study_class.sessions
+        if session.status == "COMPLETED" and period_start <= session.lesson_date <= period_end
+    ]
+    tuition_fee = _decimal_money(study_class.tuition_fee_per_session)
+    return {
+        "completed_sessions": len(completed_sessions),
+        "tuition_fee_per_session": tuition_fee,
+        "amount_due": tuition_fee * len(completed_sessions),
+    }
+
+
 def authenticate(db: Session, payload: LoginRequest) -> dict:
     account = repo.get_user_by_email(db, payload.email)
     if not account or account.password_hash != _hash_password(payload.password):
@@ -549,6 +633,7 @@ def list_students(db: Session, **filters) -> list[dict]:
 
 
 def create_student(db: Session, payload: StudentCreate) -> dict:
+    status = _normalize_choice(payload.status, ACTIVE_INACTIVE_STATUSES, "status")
     student = repo.create_student(
         db,
         Student(
@@ -558,7 +643,7 @@ def create_student(db: Session, payload: StudentCreate) -> dict:
             area=payload.area,
             current_level=payload.level,
             grade_level=payload.level,
-            status=payload.status,
+            status=status,
         ),
     )
     repo.commit(db)
@@ -576,6 +661,8 @@ def get_student_or_404(db: Session, student_id: int) -> Student:
 def update_student(db: Session, student_id: int, payload: StudentUpdate) -> dict:
     student = get_student_or_404(db, student_id)
     data = payload.model_dump(exclude_unset=True)
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], ACTIVE_INACTIVE_STATUSES, "status")
     if "level" in data:
         level = data.pop("level")
         data["current_level"] = level
@@ -591,6 +678,7 @@ def update_student(db: Session, student_id: int, payload: StudentUpdate) -> dict
 def deactivate_student(db: Session, student_id: int) -> dict:
     student = get_student_or_404(db, student_id)
     student.status = "INACTIVE"
+    repo.touch_model(student)
     repo.commit(db)
     return {"detail": "Student deactivated"}
 
@@ -614,6 +702,8 @@ def list_tutors(db: Session, **filters) -> list[dict]:
 
 
 def create_tutor(db: Session, payload: TutorCreate) -> dict:
+    _validate_non_negative_int(payload.experience, "experience")
+    status = _normalize_choice(payload.status, TUTOR_STATUSES, "status")
     tutor = repo.create_tutor(
         db,
         Tutor(
@@ -622,7 +712,7 @@ def create_tutor(db: Session, payload: TutorCreate) -> dict:
             contact_email=payload.email,
             area=payload.area,
             experience_years=payload.experience,
-            status=payload.status,
+            status=status,
         ),
     )
     for subject_name in [part.strip() for part in (payload.subjects or "").split(",") if part.strip()]:
@@ -657,7 +747,10 @@ def update_tutor(db: Session, tutor_id: int, payload: TutorUpdate) -> dict:
     tutor = get_tutor_or_404(db, tutor_id)
     data = payload.model_dump(exclude_unset=True)
     subjects = data.pop("subjects", None)
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], TUTOR_STATUSES, "status")
     if "experience" in data:
+        _validate_non_negative_int(data["experience"], "experience")
         data["experience_years"] = data.pop("experience")
     if "email" in data:
         data["contact_email"] = data.pop("email")
@@ -676,6 +769,7 @@ def update_tutor(db: Session, tutor_id: int, payload: TutorUpdate) -> dict:
                     years_experience=tutor.experience_years,
                 ),
             )
+        repo.touch_model(tutor)
     repo.commit(db)
     return tutor_to_response(repo.get_tutor(db, tutor_id))
 
@@ -683,6 +777,7 @@ def update_tutor(db: Session, tutor_id: int, payload: TutorUpdate) -> dict:
 def deactivate_tutor(db: Session, tutor_id: int) -> dict:
     tutor = get_tutor_or_404(db, tutor_id)
     tutor.status = "INACTIVE"
+    repo.touch_model(tutor)
     repo.commit(db)
     return {"detail": "Tutor deactivated"}
 
@@ -692,6 +787,9 @@ def list_subjects(db: Session, status: Optional[str] = None) -> list[dict]:
 
 
 def create_subject(db: Session, payload: SubjectCreate) -> dict:
+    status = _normalize_choice(payload.status, ACTIVE_INACTIVE_STATUSES, "status")
+    if repo.get_subject_by_name_level(db, payload.name, payload.level):
+        raise HTTPException(status_code=409, detail="Subject already exists for this level")
     subject = repo.create_subject(
         db,
         Subject(
@@ -699,7 +797,7 @@ def create_subject(db: Session, payload: SubjectCreate) -> dict:
             subject_group=payload.subject_group,
             grade_level=payload.level,
             description=payload.description,
-            status=payload.status,
+            status=status,
         ),
     )
     repo.commit(db)
@@ -716,6 +814,13 @@ def get_subject_or_404(db: Session, subject_id: int) -> Subject:
 def update_subject(db: Session, subject_id: int, payload: SubjectUpdate) -> dict:
     subject = get_subject_or_404(db, subject_id)
     data = payload.model_dump(exclude_unset=True)
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], ACTIVE_INACTIVE_STATUSES, "status")
+    next_name = data.get("name", subject.subject_name)
+    next_level = data.get("level", subject.grade_level)
+    duplicate = repo.get_subject_by_name_level(db, next_name, next_level)
+    if duplicate and duplicate.subject_id != subject_id:
+        raise HTTPException(status_code=409, detail="Subject already exists for this level")
     if "name" in data:
         data["subject_name"] = data.pop("name")
     if "level" in data:
@@ -728,6 +833,7 @@ def update_subject(db: Session, subject_id: int, payload: SubjectUpdate) -> dict
 def deactivate_subject(db: Session, subject_id: int) -> dict:
     subject = get_subject_or_404(db, subject_id)
     subject.status = "INACTIVE"
+    repo.touch_model(subject)
     repo.commit(db)
     return {"detail": "Subject deactivated"}
 
@@ -751,12 +857,14 @@ def list_tutor_subjects(db: Session, tutor_id: int) -> list[dict]:
 def add_tutor_subject(db: Session, tutor_id: int, payload: TutorSubjectCreate) -> dict:
     get_tutor_or_404(db, tutor_id)
     subject = get_subject_or_404(db, payload.subject_id)
+    _validate_non_negative_int(payload.years_experience, "years_experience")
     existing = repo.get_tutor_capability(db, tutor_id, payload.subject_id)
     capability = existing
     if existing:
         existing.years_experience = payload.years_experience
         existing.note = payload.note
         existing.teaching_level = payload.teaching_level
+        repo.touch_model(existing)
     else:
         capability = repo.create_tutor_capability(
             db,
@@ -811,6 +919,7 @@ def get_tutor_availability_or_404(db: Session, tutor_id: int, availability_id: i
 
 def create_tutor_availability(db: Session, tutor_id: int, payload: TutorAvailabilityCreate) -> dict:
     get_tutor_or_404(db, tutor_id)
+    _validate_schedule_window(payload.day_of_week, payload.start_time, payload.end_time)
     availability = repo.create_tutor_availability(
         db,
         TutorAvailability(
@@ -820,7 +929,7 @@ def create_tutor_availability(db: Session, tutor_id: int, payload: TutorAvailabi
             end_time=payload.end_time,
             teaching_mode=_normalize_mode(payload.teaching_mode, {"ONLINE", "OFFLINE", "BOTH"}, "teaching_mode"),
             area=payload.area,
-            status=payload.status,
+            status=_normalize_choice(payload.status, TUTOR_AVAILABILITY_STATUSES, "status"),
         ),
     )
     repo.commit(db)
@@ -830,8 +939,15 @@ def create_tutor_availability(db: Session, tutor_id: int, payload: TutorAvailabi
 def update_tutor_availability(db: Session, tutor_id: int, availability_id: int, payload: TutorAvailabilityUpdate) -> dict:
     availability = get_tutor_availability_or_404(db, tutor_id, availability_id)
     data = payload.model_dump(exclude_unset=True)
+    _validate_schedule_window(
+        data.get("day_of_week", availability.day_of_week),
+        data.get("start_time", availability.start_time),
+        data.get("end_time", availability.end_time),
+    )
     if "teaching_mode" in data:
         data["teaching_mode"] = _normalize_mode(data["teaching_mode"], {"ONLINE", "OFFLINE", "BOTH"}, "teaching_mode")
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], TUTOR_AVAILABILITY_STATUSES, "status")
     repo.apply_updates(availability, data)
     repo.commit(db)
     return tutor_availability_to_response(availability)
@@ -851,6 +967,7 @@ def list_learning_requests(db: Session, **filters) -> list[dict]:
 def create_learning_request(db: Session, payload: LearningRequestCreate) -> dict:
     get_student_or_404(db, payload.student_id)
     subject = _ensure_subject(db, payload.subject_id, payload.subject)
+    _validate_non_negative_decimal(payload.expected_fee, "expected_fee")
     request = repo.create_learning_request(
         db,
         LearningRequest(
@@ -879,10 +996,15 @@ def get_learning_request_or_404(db: Session, request_id: int) -> LearningRequest
 def update_learning_request(db: Session, request_id: int, payload: LearningRequestUpdate) -> dict:
     request = get_learning_request_or_404(db, request_id)
     data = payload.model_dump(exclude_unset=True)
+    if "expected_fee" in data:
+        _validate_non_negative_decimal(data["expected_fee"], "expected_fee")
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], LEARNING_REQUEST_STATUSES, "status")
     subject_text = data.pop("subject", None)
     if data.get("subject_id") or subject_text:
         subject = _ensure_subject(db, data.pop("subject_id", None), subject_text)
         request.subject_id = subject.subject_id
+        repo.touch_model(request)
     if "target" in data and "learning_goal" not in data:
         data["learning_goal"] = data.pop("target")
     if "area" in data and "preferred_area" not in data:
@@ -899,6 +1021,7 @@ def update_learning_request(db: Session, request_id: int, payload: LearningReque
 def cancel_learning_request(db: Session, request_id: int) -> dict:
     request = get_learning_request_or_404(db, request_id)
     request.status = "CANCELED"
+    repo.touch_model(request)
     repo.commit(db)
     return {"detail": "Learning request canceled"}
 
@@ -929,6 +1052,7 @@ def create_assignment(db: Session, payload: TutorAssignmentCreate) -> dict:
         ),
     )
     request.status = "ASSIGNED"
+    repo.touch_model(request)
     repo.commit(db)
     return assignment_to_response(assignment)
 
@@ -947,6 +1071,10 @@ def get_assignment_or_404(db: Session, assignment_id: int) -> TutorAssignment:
 def update_assignment(db: Session, assignment_id: int, payload: TutorAssignmentUpdate) -> dict:
     assignment = get_assignment_or_404(db, assignment_id)
     data = payload.model_dump(exclude_unset=True)
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], ASSIGNMENT_STATUSES, "status")
+    if "staff_id" in data and data["staff_id"] is not None:
+        get_staff_or_404(db, data["staff_id"])
     if "tutor_id" in data:
         tutor = get_tutor_or_404(db, data["tutor_id"])
         request = get_learning_request_or_404(db, assignment.request_id)
@@ -958,6 +1086,7 @@ def update_assignment(db: Session, assignment_id: int, payload: TutorAssignmentU
     if data.get("status") == "CANCELED":
         request = get_learning_request_or_404(db, assignment.request_id)
         request.status = "PENDING"
+        repo.touch_model(request)
     repo.apply_updates(assignment, data)
     repo.commit(db)
     return assignment_to_response(assignment)
@@ -968,8 +1097,10 @@ def cancel_assignment(db: Session, assignment_id: int) -> dict:
     if assignment.study_class:
         raise HTTPException(status_code=409, detail="Cannot cancel an assignment that already has a class")
     assignment.status = "CANCELED"
+    repo.touch_model(assignment)
     request = get_learning_request_or_404(db, assignment.request_id)
     request.status = "PENDING"
+    repo.touch_model(request)
     repo.commit(db)
     return {"detail": "Assignment canceled"}
 
@@ -983,6 +1114,8 @@ def list_classes(db: Session, **filters) -> list[dict]:
 def create_study_class(db: Session, payload: StudyClassCreate) -> dict:
     if not payload.assignment_id:
         raise HTTPException(status_code=400, detail="assignment_id is required")
+    _validate_non_negative_decimal(payload.tuition_fee_per_session, "tuition_fee_per_session")
+    _validate_date_window(payload.start_date, payload.end_date, "start_date", "end_date")
     assignment = get_assignment_or_404(db, payload.assignment_id)
     if assignment.status != "ASSIGNED":
         raise HTTPException(status_code=400, detail="Assignment must be ASSIGNED to create a class")
@@ -1016,6 +1149,14 @@ def get_class_or_404(db: Session, class_id: int) -> StudyClass:
 def update_study_class(db: Session, class_id: int, payload: StudyClassUpdate) -> dict:
     study_class = get_class_or_404(db, class_id)
     data = payload.model_dump(exclude_unset=True)
+    if "tuition_fee_per_session" in data:
+        _validate_non_negative_decimal(data["tuition_fee_per_session"], "tuition_fee_per_session")
+    _validate_date_window(
+        data.get("start_date", study_class.start_date),
+        data.get("end_date", study_class.end_date),
+        "start_date",
+        "end_date",
+    )
     if "status" in data:
         data["status"] = _normalize_class_status(data["status"])
     if "teaching_mode" in data:
@@ -1028,6 +1169,7 @@ def update_study_class(db: Session, class_id: int, payload: StudyClassUpdate) ->
 def cancel_study_class(db: Session, class_id: int) -> dict:
     study_class = get_class_or_404(db, class_id)
     study_class.status = "CANCELED"
+    repo.touch_model(study_class)
     repo.commit(db)
     return {"detail": "Class canceled"}
 
@@ -1039,7 +1181,10 @@ def list_schedules(db: Session, **filters) -> list[dict]:
 def create_schedule(db: Session, payload: ClassScheduleCreate) -> dict:
     get_class_or_404(db, payload.class_id)
     _validate_schedule_window(payload.day_of_week, payload.start_time, payload.end_time)
-    schedule = repo.create_schedule(db, ClassSchedule(**payload.model_dump()))
+    _validate_date_window(payload.effective_from, payload.effective_to, "effective_from", "effective_to")
+    data = payload.model_dump()
+    data["status"] = _normalize_choice(data["status"], SCHEDULE_STATUSES, "status")
+    schedule = repo.create_schedule(db, ClassSchedule(**data))
     repo.commit(db)
     return schedule_to_response(schedule)
 
@@ -1058,7 +1203,16 @@ def update_schedule(db: Session, schedule_id: int, payload: ClassScheduleUpdate)
         payload.start_time if payload.start_time is not None else schedule.start_time,
         payload.end_time if payload.end_time is not None else schedule.end_time,
     )
-    repo.apply_updates(schedule, payload.model_dump(exclude_unset=True))
+    _validate_date_window(
+        payload.effective_from if payload.effective_from is not None else schedule.effective_from,
+        payload.effective_to if payload.effective_to is not None else schedule.effective_to,
+        "effective_from",
+        "effective_to",
+    )
+    data = payload.model_dump(exclude_unset=True)
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], SCHEDULE_STATUSES, "status")
+    repo.apply_updates(schedule, data)
     repo.commit(db)
     return schedule_to_response(schedule)
 
@@ -1066,6 +1220,7 @@ def update_schedule(db: Session, schedule_id: int, payload: ClassScheduleUpdate)
 def delete_schedule(db: Session, schedule_id: int) -> dict:
     schedule = get_schedule_or_404(db, schedule_id)
     schedule.status = "INACTIVE"
+    repo.touch_model(schedule)
     repo.commit(db)
     return {"detail": "Schedule deactivated"}
 
@@ -1076,7 +1231,15 @@ def list_sessions(db: Session, session_date: Optional[date] = None, **filters) -
 
 def create_session(db: Session, payload: LessonSessionCreate) -> dict:
     get_class_or_404(db, payload.class_id)
-    session = repo.create_session(db, LessonSession(**payload.model_dump()))
+    if payload.schedule_id is not None:
+        schedule = get_schedule_or_404(db, payload.schedule_id)
+        if schedule.class_id != payload.class_id:
+            raise HTTPException(status_code=400, detail="schedule_id must belong to class_id")
+    _validate_positive_int(payload.session_number, "session_number")
+    _validate_session_window(payload.start_time, payload.end_time)
+    data = payload.model_dump()
+    data["status"] = _normalize_choice(data["status"], SESSION_STATUSES, "status")
+    session = repo.create_session(db, LessonSession(**data))
     repo.commit(db)
     return session_to_response(session)
 
@@ -1090,16 +1253,30 @@ def get_session_or_404(db: Session, session_id: int) -> LessonSession:
 
 def update_session(db: Session, session_id: int, payload: LessonSessionUpdate) -> dict:
     session = get_session_or_404(db, session_id)
-    repo.apply_updates(session, payload.model_dump(exclude_unset=True))
+    data = payload.model_dump(exclude_unset=True)
+    if "schedule_id" in data and data["schedule_id"] is not None:
+        schedule = get_schedule_or_404(db, data["schedule_id"])
+        if schedule.class_id != session.class_id:
+            raise HTTPException(status_code=400, detail="schedule_id must belong to the session class")
+    if "session_number" in data:
+        _validate_positive_int(data["session_number"], "session_number")
+    _validate_session_window(
+        data.get("start_time", session.start_time),
+        data.get("end_time", session.end_time),
+    )
+    if "status" in data:
+        data["status"] = _normalize_choice(data["status"], SESSION_STATUSES, "status")
+    repo.apply_updates(session, data)
     repo.commit(db)
     return session_to_response(session)
 
 
 def update_session_status(db: Session, session_id: int, payload: LessonSessionStatusUpdate) -> dict:
     session = get_session_or_404(db, session_id)
-    session.status = payload.status
-    if payload.content_note is not None:
+    session.status = _normalize_choice(payload.status, SESSION_STATUSES, "status")
+    if "content_note" in payload.model_fields_set:
         session.content_note = payload.content_note
+    repo.touch_model(session)
     repo.commit(db)
     return session_to_response(session)
 
@@ -1107,6 +1284,7 @@ def update_session_status(db: Session, session_id: int, payload: LessonSessionSt
 def delete_session(db: Session, session_id: int) -> dict:
     session = get_session_or_404(db, session_id)
     session.status = "CANCELED"
+    repo.touch_model(session)
     repo.commit(db)
     return {"detail": "Session canceled"}
 
@@ -1122,6 +1300,14 @@ def list_invoices(db: Session, **filters) -> list[dict]:
 
 def create_invoice(db: Session, payload: TuitionInvoiceCreate) -> dict:
     get_class_or_404(db, payload.class_id)
+    _validate_invoice_values(
+        payload.period_start,
+        payload.period_end,
+        payload.completed_sessions,
+        payload.tuition_fee_per_session,
+        payload.amount_due,
+        payload.amount_paid,
+    )
     existing_invoice = repo.get_invoice_by_class_period(db, payload.class_id, payload.period_start, payload.period_end)
     if existing_invoice:
         raise HTTPException(status_code=409, detail="Invoice already exists for this class and period")
@@ -1142,6 +1328,14 @@ def get_invoice_or_404(db: Session, invoice_id: int) -> TuitionInvoice:
 def update_invoice(db: Session, invoice_id: int, payload: TuitionInvoiceUpdate) -> dict:
     invoice = get_invoice_or_404(db, invoice_id)
     data = payload.model_dump(exclude_unset=True)
+    _validate_invoice_values(
+        data.get("period_start", invoice.period_start),
+        data.get("period_end", invoice.period_end),
+        data.get("completed_sessions", invoice.completed_sessions),
+        data.get("tuition_fee_per_session", invoice.tuition_fee_per_session),
+        data.get("amount_due", invoice.amount_due),
+        data.get("amount_paid", invoice.amount_paid),
+    )
     if "status" in data:
         data["status"] = _normalize_invoice_status(data["status"])
     repo.apply_updates(invoice, data)
@@ -1152,6 +1346,7 @@ def update_invoice(db: Session, invoice_id: int, payload: TuitionInvoiceUpdate) 
 def delete_invoice(db: Session, invoice_id: int) -> dict:
     invoice = get_invoice_or_404(db, invoice_id)
     invoice.status = "CANCELED"
+    repo.touch_model(invoice)
     repo.commit(db)
     return {"detail": "Invoice canceled"}
 
@@ -1179,43 +1374,51 @@ def list_payments(db: Session, **filters) -> list[dict]:
 
 def create_payment(db: Session, payload: TuitionPaymentCreate) -> dict:
     payment_amount = _decimal_money(payload.amount_paid)
-    if payment_amount <= 0:
-        raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+    _validate_positive_decimal(payment_amount, "Payment amount")
+    payment_status = _normalize_payment_status(payload.status) if payload.status else "SUCCESS"
 
     invoice = None
     if payload.invoice_id:
         invoice = get_invoice_or_404(db, payload.invoice_id)
+        if payload.class_id is not None and invoice.class_id != payload.class_id:
+            raise HTTPException(status_code=400, detail="class_id must match invoice_id")
     elif payload.class_id:
         period_start = payload.period_start or date.today().replace(day=1)
         period_end = payload.period_end or date.today()
+        _validate_date_window(period_start, period_end, "period_start", "period_end")
         invoice = repo.get_invoice_by_class_period(db, payload.class_id, period_start, period_end)
         if not invoice:
-            summary = tuition_summary(db, payload.class_id)
+            study_class = get_class_or_404(db, payload.class_id)
+            snapshot = _invoice_snapshot_from_class_period(study_class, period_start, period_end)
             invoice = repo.create_invoice(
                 db,
                 TuitionInvoice(
                     class_id=payload.class_id,
                     period_start=period_start,
                     period_end=period_end,
-                    completed_sessions=summary["completed_sessions"],
-                    tuition_fee_per_session=Decimal(str(summary["tuition_fee_per_session"])),
-                    amount_due=Decimal(str(summary["total_fee"])),
+                    completed_sessions=snapshot["completed_sessions"],
+                    tuition_fee_per_session=snapshot["tuition_fee_per_session"],
+                    amount_due=snapshot["amount_due"],
                     amount_paid=Decimal("0"),
-                    status=_normalize_invoice_status(payload.status) if payload.status else "UNPAID",
+                    status="UNPAID",
                 ),
             )
     if not invoice:
         raise HTTPException(status_code=400, detail="invoice_id or class_id is required")
+    if payload.student_id is not None:
+        class_student_id = invoice.study_class.assignment.learning_request.student_id
+        if payload.student_id != class_student_id:
+            raise HTTPException(status_code=400, detail="student_id must match the invoice class student")
     if invoice.status == "CANCELED":
         raise HTTPException(status_code=400, detail="Cannot record payment for a canceled invoice")
     if payload.staff_id is not None:
         get_staff_or_404(db, payload.staff_id)
 
-    remaining_amount = _invoice_remaining_amount(invoice)
-    if payment_amount > remaining_amount:
-        raise HTTPException(status_code=400, detail="Payment amount exceeds invoice remaining amount")
+    if payment_status == "SUCCESS":
+        remaining_amount = _invoice_remaining_amount(invoice)
+        if payment_amount > remaining_amount:
+            raise HTTPException(status_code=400, detail="Payment amount exceeds invoice remaining amount")
 
-    payment_status = _normalize_payment_status(payload.status) if payload.status else "SUCCESS"
     payment = repo.create_payment(
         db,
         TuitionPayment(
@@ -1244,8 +1447,7 @@ def update_payment(db: Session, payment_id: int, payload: TuitionPaymentUpdate) 
     data = payload.model_dump(exclude_unset=True)
     if "amount_paid" in data:
         data["amount_paid"] = _decimal_money(data["amount_paid"])
-        if data["amount_paid"] <= 0:
-            raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+        _validate_positive_decimal(data["amount_paid"], "Payment amount")
     if "staff_id" in data and data["staff_id"] is not None:
         get_staff_or_404(db, data["staff_id"])
     if "status" in data:
@@ -1264,6 +1466,7 @@ def update_payment(db: Session, payment_id: int, payload: TuitionPaymentUpdate) 
 def delete_payment(db: Session, payment_id: int) -> dict:
     payment = get_payment_or_404(db, payment_id)
     payment.status = "CANCELED"
+    repo.touch_model(payment)
     repo.commit(db)
     return {"detail": "Payment canceled"}
 
