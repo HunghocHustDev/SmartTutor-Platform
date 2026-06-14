@@ -1,104 +1,67 @@
-import React, { useState } from "react";
+import React from "react";
+import { NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { TUTOR_MENU } from "../constants/navigation"; // 🌟 Import hằng số menu sạch sẽ
 
-// IMPORT ĐÚNG 3 CHỨC NĂNG CON HIỆN TẠI CỦA BẠN
-
-import TutorClasses from "../components/tutor/TutorClasses";
-
-import TutorSchedule from "../components/tutor/TutorSchedule";
-
-import TutorReports from "../components/tutor/TutorReports";
-
-function TutorPage({ currentUser }) {
-  // 1. QUẢN LÝ TAB HOẠT ĐỘNG TRONG SIDEBAR (Giữ nguyên logic của bạn)
-
-  const [activeTab, setActiveTab] = useState("schedule");
+function TutorPage() {
+  const { user } = useAuth();
 
   return (
-    <div className="w-full bg-gray-50 flex flex-col font-sans">
-      {/* BANNER CHÀO MỪNG GIA SƯ (Tối ưu hóa: lấy trực tiếp dữ liệu từ currentUser tổng) */}
-
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white py-8 px-10 shadow-sm">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold">
-              Xin chào, {currentUser?.name || "Gia sư"} 👋
-            </h1>
-
-            <p className="text-emerald-100 text-sm mt-1">
-              Chào mừng bạn đến với không gian quản trị giảng dạy của
-              **GiaSưTâmTâm**. Hãy cập nhật lịch trình và nhật ký lớp học đúng
-              hạn nhé!
-            </p>
-          </div>
-
-          <div className="bg-emerald-500/20 border border-emerald-300/30 text-white text-xs font-mono px-3 py-1.5 rounded-lg">
-            🔑 Mã số: GS-{currentUser?.id || "001"}
-          </div>
+    <div className="flex min-h-[calc(100vh-70px)] bg-gray-50 font-sans">
+      {/* ==========================================
+          SIDEBAR - TRÀN SÁT LỀ TRÁI (GIỐNG HỆT STUDENT)
+          ========================================== */}
+      <aside className="w-64 bg-white border-r border-gray-200 p-5 flex flex-col gap-6 shrink-0 shadow-sm">
+        <div className="pb-3 border-b border-gray-100">
+          <h3 className="text-xs font-bold text-gray-400 tracking-wider uppercase mb-1">
+            Bảng điều khiển
+          </h3>
+          <p className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded inline-block select-none">
+            Không gian Gia sư
+          </p>
         </div>
-      </div>
 
-      {/* KHU VỰC ĐIỀU HƯỚNG TAB & NỘI DUNG CHỨC NĂNG */}
-
-      <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 flex flex-col md:flex-row gap-8">
-        {/* SIDEBAR - MENU ĐIỀU HƯỚNG BÊN TRÁI (Giữ nguyên cấu trúc giao diện bạn thích) */}
-
-        <aside className="w-full md:w-64 flex-shrink-0">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-1 sticky top-24">
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 mb-2">
-              Bảng điều khiển
-            </p>
-
-            {/* Tab 1: Lịch Dạy */}
-
-            <button
-              onClick={() => setActiveTab("schedule")}
-              className={`w-full text-left px-4 py-3 rounded-lg text-sm font-semibold transition flex items-center gap-3 ${
-                activeTab === "schedule"
-                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-200 transform scale-[1.01]"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-emerald-600"
-              }`}
+        {/* Danh sách các Link điều hướng con sử dụng hằng số tập trung */}
+        <nav className="flex flex-col gap-1 flex-1">
+          {TUTOR_MENU.map((item, index) => (
+            <NavLink
+              key={index}
+              to={item.path}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-200 text-sm select-none ${
+                  isActive
+                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-200 transform scale-[1.02]"
+                    : "text-gray-600 hover:bg-emerald-50 hover:text-emerald-600"
+                }`
+              }
             >
-              <span className="text-base">📅</span> Lịch dạy tuần này
-            </button>
+              <span className="text-base">{item.icon}</span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
 
-            {/* Tab 2: Lớp Học */}
+      {/* ==========================================
+          MAIN CONTENT - NƠI HIỂN THỊ NỘI DUNG CHÍNH
+          ========================================== */}
+      <main className="flex-1 p-8 max-w-6xl mx-auto w-full transition-all duration-300 flex flex-col gap-4">
+        {/* Banner chào mừng */}
+        <div className="p-6 bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm">
+          <h2 className="text-xl font-bold text-emerald-900">
+            Xin chào, {user?.name || "Gia sư"} 👋
+          </h2>
+          <p className="text-sm text-emerald-700 mt-1">
+            Chào mừng bạn đến với không gian quản trị giảng dạy. Hãy cập nhật
+            lịch trình và nhật ký lớp học đúng hạn nhé!
+          </p>
+        </div>
 
-            <button
-              onClick={() => setActiveTab("classes")}
-              className={`w-full text-left px-4 py-3 rounded-lg text-sm font-semibold transition flex items-center gap-3 ${
-                activeTab === "classes"
-                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-200 transform scale-[1.01]"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-emerald-600"
-              }`}
-            >
-              <span className="text-base">💼</span> Lớp học đang dạy
-            </button>
-
-            {/* Tab 3: Báo Cáo / Nhật Ký */}
-
-            <button
-              onClick={() => setActiveTab("reports")}
-              className={`w-full text-left px-4 py-3 rounded-lg text-sm font-semibold transition flex items-center gap-3 ${
-                activeTab === "reports"
-                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-200 transform scale-[1.01]"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-emerald-600"
-              }`}
-            >
-              <span className="text-base">📝</span> Nhật ký & Điểm danh
-            </button>
-          </div>
-        </aside>
-
-        {/* NỘI DUNG CHỦ ĐỘNG HIỂN THỊ BÊN PHẢI (Nạp các component con của bạn) */}
-
-        <main className="flex-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100 min-h-[450px]">
-          {activeTab === "schedule" && <TutorSchedule />}
-
-          {activeTab === "classes" && <TutorClasses />}
-
-          {activeTab === "reports" && <TutorReports />}
-        </main>
-      </div>
+        {/* Khu vực nạp động giao diện các trang con */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 min-h-[500px]">
+          <Outlet />
+        </div>
+      </main>
     </div>
   );
 }

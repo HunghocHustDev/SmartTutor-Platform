@@ -1,7 +1,8 @@
 import React, { useState } from "react";
+import { useAuth } from "../../context/AuthContext";
 
 export default function RegisterForm({ onClose, switchToLogin }) {
-  // Sử dụng state để quản lý dữ liệu nhập vào
+  const { login } = useAuth(); // Đăng nhập luôn cho user sau khi đăng ký thành công
   const [role, setRole] = useState("student");
   const [phone, setPhone] = useState("");
   const [fullName, setFullName] = useState("");
@@ -10,46 +11,44 @@ export default function RegisterForm({ onClose, switchToLogin }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log({
-      fullName,
-      email,
-      password,
-      phone,
-      role,
-    });
+
+    // Giả lập ghi nhận tài khoản đăng ký thành công vào database
+    const newUserData = {
+      name: fullName || "Thành viên mới",
+      role: role,
+      token: "mock-jwt-token-after-registration",
+    };
+
     alert(
-      `Đăng ký thành công tài khoản ${role === "tutor" ? "Gia sư" : "Học viên"}!`,
+      `Đăng ký thành công tài khoản ${role === "tutor" ? "Gia sư" : "Học viên"}! Thống tự động đăng nhập.`,
     );
+
+    login(newUserData); // Kích hoạt trạng thái đăng nhập hệ thống ngay lập tức
+    onClose();
   };
 
   return (
-    <div style={modalOverlayStyle}>
-      <div style={modalContentStyle}>
-        <button onClick={onClose} style={closeButtonStyle}>
+    <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-[1000]">
+      <div className="bg-white p-10 rounded-xl w-[420px] shadow-2xl relative motion-safe:animate-fadeIn">
+        {/* Nút đóng */}
+        <button
+          onClick={onClose}
+          className="absolute top-2.5 right-[15px] bg-transparent border-none text-2xl cursor-pointer text-gray-400 hover:text-gray-600 transition-colors"
+        >
           &times;
         </button>
-        <h2
-          style={{
-            marginBottom: "25px",
-            color: "#F97316",
-            fontSize: "24px",
-            textAlign: "center",
-          }}
-        >
+
+        <h2 className="text-2xl font-bold mb-6 text-orange-500 text-center">
           Đăng Ký Tài Khoản
         </h2>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: "15px" }}
-        >
-          {/* 1. Các ô nhập thông tin cá nhân lên trước */}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
           <input
             type="text"
             placeholder="Họ và tên"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            style={inputStyle}
+            className="p-3 border border-gray-300 rounded-md text-sm outline-none focus:border-orange-500 w-full box-border"
             required
           />
 
@@ -58,7 +57,7 @@ export default function RegisterForm({ onClose, switchToLogin }) {
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={inputStyle}
+            className="p-3 border border-gray-300 rounded-md text-sm outline-none focus:border-orange-500 w-full box-border"
             required
           />
 
@@ -69,7 +68,7 @@ export default function RegisterForm({ onClose, switchToLogin }) {
             title="Số điện thoại phải gồm 10 chữ số"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            style={inputStyle}
+            className="p-3 border border-gray-300 rounded-md text-sm outline-none focus:border-orange-500 w-full box-border"
             required
           />
 
@@ -78,64 +77,52 @@ export default function RegisterForm({ onClose, switchToLogin }) {
             placeholder="Mật khẩu"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={inputStyle}
+            className="p-3 border border-gray-300 rounded-md text-sm outline-none focus:border-orange-500 w-full box-border"
             required
           />
 
-          {/* 2. Phần chọn vai trò đã được đẩy xuống cuối cùng ở đây */}
-          <div style={roleContainerStyle}>
-            <label
-              style={{
-                fontWeight: "600",
-                color: "#4B5563",
-                marginRight: "10px",
-              }}
-            >
-              Bạn là:
-            </label>
+          {/* Chọn vai trò */}
+          <div className="flex items-center gap-4 my-1.5 text-sm">
+            <label className="font-semibold text-gray-600 mr-2">Bạn là:</label>
 
-            <label style={radioLabelStyle}>
+            <label className="flex items-center gap-1.5 cursor-pointer text-gray-700 select-none">
               <input
                 type="radio"
                 name="role"
                 value="student"
                 checked={role === "student"}
                 onChange={() => setRole("student")}
-                style={radioInputStyle}
+                className="w-4 h-4 cursor-pointer accent-orange-500"
               />
               Học viên / Phụ huynh
             </label>
 
-            <label style={radioLabelStyle}>
+            <label className="flex items-center gap-1.5 cursor-pointer text-gray-700 select-none">
               <input
                 type="radio"
                 name="role"
                 value="tutor"
                 checked={role === "tutor"}
                 onChange={() => setRole("tutor")}
-                style={radioInputStyle}
+                className="w-4 h-4 cursor-pointer accent-orange-500"
               />
               Gia sư
             </label>
           </div>
 
-          <button type="submit" style={btnSubmitStyle}>
+          <button
+            type="submit"
+            className="p-3 bg-orange-500 text-white border-none rounded-md text-base font-bold cursor-pointer hover:bg-orange-600 transition-colors mt-1"
+          >
             Đăng Ký
           </button>
         </form>
 
-        <p
-          style={{
-            marginTop: "20px",
-            fontSize: "14px",
-            color: "#6B7280",
-            textAlign: "center",
-          }}
-        >
+        <p className="mt-5 text-sm text-gray-500 text-center">
           Đã có tài khoản?{" "}
           <span
             onClick={switchToLogin}
-            style={{ color: "#1A56DB", cursor: "pointer", fontWeight: "bold" }}
+            className="text-blue-600 cursor-pointer font-bold hover:underline"
           >
             Đăng nhập
           </span>
@@ -144,79 +131,3 @@ export default function RegisterForm({ onClose, switchToLogin }) {
     </div>
   );
 }
-
-// Giữ nguyên bộ style CSS inline ổn định
-const modalOverlayStyle = {
-  position: "fixed",
-  top: 0,
-  left: 0,
-  width: "100vw",
-  height: "100vh",
-  backgroundColor: "rgba(0,0,0,0.5)",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  zIndex: 1000,
-};
-const modalContentStyle = {
-  backgroundColor: "#fff",
-  padding: "40px",
-  borderRadius: "12px",
-  width: "420px",
-  boxShadow: "0 4px 25px rgba(0,0,0,0.15)",
-  position: "relative",
-};
-const closeButtonStyle = {
-  position: "absolute",
-  top: "10px",
-  right: "15px",
-  background: "none",
-  border: "none",
-  fontSize: "24px",
-  cursor: "pointer",
-  color: "#9CA3AF",
-};
-const inputStyle = {
-  padding: "12px",
-  border: "1px solid #D1D5DB",
-  borderRadius: "6px",
-  fontSize: "15px",
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
-};
-
-// CSS cho khu vực phân vai trò nằm cuối
-const roleContainerStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: "15px",
-  marginTop: "5px",
-  marginBottom: "5px",
-  fontSize: "15px",
-};
-const radioLabelStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: "6px",
-  cursor: "pointer",
-  color: "#374151",
-};
-const radioInputStyle = {
-  width: "16px",
-  height: "16px",
-  cursor: "pointer",
-  accentColor: "#F97316",
-};
-
-const btnSubmitStyle = {
-  padding: "12px",
-  backgroundColor: "#F97316",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  fontSize: "16px",
-  fontWeight: "bold",
-  cursor: "pointer",
-  marginTop: "5px",
-};

@@ -1,40 +1,93 @@
-import React from "react";
+import React, { useState } from "react";
+import { useAuth } from "../../context/AuthContext";
 
 export default function LoginForm({ onClose, switchToRegister }) {
+  const { login } = useAuth(); // Gọi hàm login từ Context toàn cục
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setError("");
+
+    // --- LOGIC GIẢ LẬP ĐĂNG NHẬP THỰC TẾ ---
+    // Sau này anh kết nối API gọi đến SQL Server ở chỗ này
+    if (email && password) {
+      let role = "student";
+      let name = "Nguyễn Khánh An";
+
+      // Giả lập phân tách vai trò theo ký tự email để anh dễ demo bài tập
+      if (email.includes("tutor")) {
+        role = "tutor";
+        name = "Thầy giáo Ngô Bảo";
+      } else if (email.includes("admin")) {
+        role = "admin";
+        name = "Admin Hệ Thống";
+      }
+
+      const userData = {
+        name: name,
+        role: role,
+        token: "mock-jwt-token-from-sql-server",
+      };
+
+      login(userData); // Đẩy lên Context toàn cục quản lý
+      onClose(); // Đóng modal trạng thái tạm thời
+    } else {
+      setError("Vui lòng nhập đầy đủ tài khoản và mật khẩu!");
+    }
+  };
+
   return (
-    <div style={modalOverlayStyle}>
-      <div style={modalContentStyle}>
-        <button onClick={onClose} style={closeButtonStyle}>
+    <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-[1000]">
+      <div className="bg-white p-10 rounded-xl w-[400px] shadow-2xl relative text-center motion-safe:animate-fadeIn">
+        {/* Nút đóng */}
+        <button
+          onClick={onClose}
+          className="absolute top-2.5 right-[15px] bg-transparent border-none text-2xl cursor-pointer text-gray-400 hover:text-gray-600 transition-colors"
+        >
           &times;
         </button>
-        <h2 style={{ marginBottom: "20px", color: "#1A56DB" }}>
-          Đăng Nhập Gia Sư / Học Viên
+
+        <h2 className="text-2xl font-bold mb-5 text-blue-600">
+          Đăng Nhập Giao Diện
         </h2>
-        <form
-          onSubmit={(e) => e.preventDefault()}
-          style={{ display: "flex", flexDirection: "column", gap: "15px" }}
-        >
+
+        {error && (
+          <p className="text-red-500 text-sm mb-3 text-left">{error}</p>
+        )}
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <input
             type="email"
-            placeholder="Email đăng nhập"
-            style={inputStyle}
+            placeholder="Email đăng nhập (chứa 'tutor' để làm gia sư)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="p-3 border border-gray-300 rounded-md text-base outline-none focus:border-blue-600 w-full box-border"
             required
           />
           <input
             type="password"
             placeholder="Mật khẩu"
-            style={inputStyle}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="p-3 border border-gray-300 rounded-md text-base outline-none focus:border-blue-600 w-full box-border"
             required
           />
-          <button type="submit" style={btnSubmitStyle}>
+          <button
+            type="submit"
+            className="p-3 bg-blue-600 text-white border-none rounded-md text-base font-bold cursor-pointer hover:bg-blue-700 transition-colors"
+          >
             Đăng Nhập
           </button>
         </form>
-        <p style={{ marginTop: "15px", fontSize: "14px", color: "#6B7280" }}>
+
+        <p className="mt-5 text-sm text-gray-500">
           Chưa có tài khoản?{" "}
           <span
             onClick={switchToRegister}
-            style={{ color: "#F97316", cursor: "pointer", fontWeight: "bold" }}
+            className="text-orange-500 cursor-pointer font-bold hover:underline"
           >
             Đăng ký ngay
           </span>
@@ -43,52 +96,3 @@ export default function LoginForm({ onClose, switchToRegister }) {
     </div>
   );
 }
-
-const modalOverlayStyle = {
-  position: "fixed",
-  top: 0,
-  left: 0,
-  width: "100vw",
-  height: "100vh",
-  backgroundColor: "rgba(0,0,0,0.5)",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  zIndex: 1000,
-};
-const modalContentStyle = {
-  backgroundColor: "#fff",
-  padding: "40px",
-  borderRadius: "12px",
-  width: "400px",
-  boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-  position: "relative",
-  textAlign: "center",
-};
-const closeButtonStyle = {
-  position: "absolute",
-  top: "10px",
-  right: "15px",
-  background: "none",
-  border: "none",
-  fontSize: "24px",
-  cursor: "pointer",
-  color: "#9CA3AF",
-};
-const inputStyle = {
-  padding: "12px",
-  border: "1px solid #D1D5DB",
-  borderRadius: "6px",
-  fontSize: "16px",
-  outline: "none",
-};
-const btnSubmitStyle = {
-  padding: "12px",
-  backgroundColor: "#1A56DB",
-  color: "white",
-  border: "none",
-  borderRadius: "6px",
-  fontSize: "16px",
-  fontWeight: "bold",
-  cursor: "pointer",
-};
