@@ -5,7 +5,8 @@ from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import LearningRequest, LessonSession, Staff, Student, StudyClass, TuitionInvoice, TuitionPayment, Tutor, TutorAssignment, UserAccount
+from app.models import LearningRequest, LessonSession, StudyClass, TuitionInvoice, TuitionPayment, TutorAssignment
+from app.repositories import data_repository as repo
 from app.services import business_service as service
 
 
@@ -43,7 +44,7 @@ def get_current_actor(
     except ValueError as exc:
         raise HTTPException(status_code=401, detail="Invalid authentication token") from exc
 
-    account = db.query(UserAccount).filter(UserAccount.account_id == account_id).first()
+    account = repo.get_user_by_id(db, account_id)
     if not account or account.status != "ACTIVE":
         raise HTTPException(status_code=401, detail="Account is not active")
 
@@ -54,13 +55,13 @@ def get_current_actor(
     )
 
     if account.role == "STUDENT":
-        student = db.query(Student).filter(Student.account_id == account.account_id).first()
+        student = repo.get_student_by_account_id(db, account.account_id)
         actor.student_id = student.student_id if student else None
     elif account.role == "TUTOR":
-        tutor = db.query(Tutor).filter(Tutor.account_id == account.account_id).first()
+        tutor = repo.get_tutor_by_account_id(db, account.account_id)
         actor.tutor_id = tutor.tutor_id if tutor else None
     else:
-        staff = db.query(Staff).filter(Staff.account_id == account.account_id).first()
+        staff = repo.get_staff_by_account_id(db, account.account_id)
         actor.staff_id = staff.staff_id if staff else None
 
     return actor
@@ -116,6 +117,11 @@ def ensure_assignment_access(actor: CurrentActor, assignment: TutorAssignment) -
 def ensure_class_access(actor: CurrentActor, study_class: StudyClass) -> None:
     if actor.role == "staff":
         return
+    if hasattr(study_class, "student_id") or hasattr(study_class, "tutor_id"):
+        if actor.role == "student" and actor.student_id == getattr(study_class, "student_id", None):
+            return
+        if actor.role == "tutor" and actor.tutor_id == getattr(study_class, "tutor_id", None):
+            return
     assignment = study_class.assignment
     learning_request = assignment.learning_request if assignment else None
     if actor.role == "student" and learning_request and actor.student_id == learning_request.student_id:

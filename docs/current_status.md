@@ -92,6 +92,51 @@ uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-
   - shared repository updates no longer skip `None` values, so nullable columns can be cleared through update payloads
   - `updated_at` is touched automatically for shared update paths when at least one model field is applied
   - direct service transitions such as soft-delete/cancel/status patch now touch `updated_at` before commit
+- SQL raw repository migration Step 1 has started on auth/account/profile lookup paths:
+  - `data_repository.py` now has shared raw SQL helpers for `fetch_one`, `fetch_all`, and `execute`
+  - auth account lookup now uses raw SQL repository functions for `USER_ACCOUNT`
+  - actor/profile lookup by `account_id` now uses raw SQL repository functions for `STUDENT`, `TUTOR`, and `STAFF`
+  - `backend/app/core/auth.py` no longer uses direct `db.query(...)` for current-actor resolution
+  - `business_service.authenticate()` no longer uses direct `db.query(...)` for role profile resolution
+  - this step is compile-verified; broader master-data CRUD is still ORM-backed pending later migration steps
+- SQL raw repository migration Step 2 is complete for student and subject CRUD:
+  - `get_students`, `get_student`, `create_student`, `update_student`, and `deactivate_student` now use parameterized raw SQL
+  - `get_subjects`, `get_subject`, `get_subject_by_name_level`, `create_subject`, `update_subject`, and `deactivate_subject` now use parameterized raw SQL
+  - repository updates use a whitelisted `update_by_id` helper instead of request-driven table or column names
+  - student and subject service update/deactivate flows now call explicit repository SQL functions instead of mutating returned objects
+  - this step is compile/search verified; tutor profile and downstream business flows remain pending later migration steps
+- SQL raw repository migration Step 3 is complete for tutor profile paths:
+  - tutor list/detail/create/update/deactivate now use parameterized raw SQL
+  - tutor read helpers attach capability and subject dot-access objects for existing response compatibility
+  - tutor capability list/create/update/delete now use parameterized raw SQL
+  - tutor availability list/detail/create/update/delete now use parameterized raw SQL
+  - tutor service update/deactivate, capability update, subject rebuild, and availability update/delete flows now use explicit repository SQL functions instead of ORM mutation or `db.flush()`
+  - this step is compile/search verified; learning request, assignment, class, schedule, session, invoice, payment, and dashboard paths remain pending later migration steps
+- SQL raw repository migration Step 4 is complete for learning request CRUD:
+  - `get_learning_requests`, `get_learning_request`, `create_learning_request`, `update_learning_request`, and `cancel_learning_request` now use parameterized raw SQL
+  - learning request read helpers attach student and subject dot-access objects for existing response compatibility
+  - learning request update/cancel service flows now call explicit repository SQL functions instead of mutating returned objects
+  - this step is compile/search verified; assignment-driven request status transitions remain pending the assignment migration step
+- SQL raw repository migration Step 5 is complete for assignment CRUD and assignment/request transitions:
+  - `get_assignments`, `get_assignment`, `create_assignment`, `update_assignment`, and `cancel_assignment` now use parameterized raw SQL
+  - assignment read helpers attach a lightweight `study_class` object when an assignment already has a class, preserving existing class-creation/cancel checks
+  - create assignment now updates the linked learning request to `ASSIGNED` through explicit SQL
+  - update/cancel assignment now returns the linked learning request to `PENDING` through explicit SQL when the assignment is canceled
+  - assignment service flows no longer mutate assignment/request objects directly
+  - this step is compile/search verified; class, schedule, session, invoice, payment, and dashboard paths remain pending later migration steps
+- SQL raw repository migration Step 6 is complete for class read/write and class tuition aggregates:
+  - `get_classes` and `get_class` now read from `VW_STUDY_CLASS_DETAIL`
+  - class read helpers attach raw SQL schedule display and next scheduled lesson fields for existing frontend response compatibility
+  - `create_class`, `update_class`, and `cancel_class` now use parameterized raw SQL
+  - `class_to_response` and class access checks now support view-backed flat class rows
+  - class-id payment auto-invoice snapshot and `/classes/{id}/tuition-summary` now use raw SQL aggregates instead of `study_class.sessions` / `study_class.invoices`
+  - this step is compile/search verified; schedule, session, invoice, payment, and dashboard paths remain pending later migration steps
+- SQL raw repository migration Step 7 is complete for class schedule CRUD and schedule filters:
+  - `get_schedules` now uses parameterized raw SQL with normalized joins through `STUDY_CLASS`, `TUTOR_ASSIGNMENT`, and `LEARNING_REQUEST`
+  - `get_schedule` and `create_schedule` now use parameterized raw SQL against `CLASS_SCHEDULE`
+  - `update_schedule` and `deactivate_schedule` now use whitelisted explicit SQL updates
+  - schedule service update/delete flows no longer mutate returned schedule objects directly
+  - this step is compile/search verified; session, invoice, payment, and dashboard paths remain pending later migration steps
 
 ## Verified Business Flow Status
 
@@ -197,6 +242,7 @@ powershell -ExecutionPolicy Bypass -File .\sql\reset_demo_utf8.ps1 -Seed sample
 
 - verify the newly added staff finance/assignment/schedule/session screens against live backend requests, not just build/code audit
 - rerun the auth-aware CRUD smoke test against the active local backend and refresh evidence text if any endpoint behavior changed
+- continue SQL raw repository migration with lesson session CRUD, status updates, and session filters after the schedule raw SQL step
 - rerun the auth-aware CRUD smoke test to verify the new class-id payment auto-invoice branch against SQL Server triggers
 - add focused negative HTTP tests for the service-layer validation paths added in this batch
 - add focused HTTP coverage for explicit nullable-field clearing and `updated_at` movement on update/cancel paths

@@ -367,3 +367,222 @@
 
 - Rerun the auth-aware HTTP smoke test against the active SQL Server-backed backend to verify the new auto-invoice branch with the payment trigger enabled.
 - Add negative HTTP cases for mismatched `invoice_id`/`class_id`, mismatched `student_id`, canceled invoices, and overpayment on auto-created invoices.
+
+## 2026-06-14 - SQL Raw Repository Migration Step 1 Auth Foundation
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `backend/app/core/auth.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added shared raw SQL helpers in `data_repository.py` for `fetch_one`, `fetch_all`, and `execute`, using `sqlalchemy.text(...)`.
+- Converted `USER_ACCOUNT` lookup functions used by auth from ORM queries to parameterized raw SQL.
+- Added raw SQL profile lookup helpers for `STUDENT`, `TUTOR`, and `STAFF` by `account_id`.
+- Changed `business_service.authenticate()` to resolve role-specific profiles through repository raw SQL helpers instead of direct ORM queries.
+- Changed `core/auth.py` current-actor resolution to use repository raw SQL helpers instead of direct ORM queries.
+- Kept create/update/delete flows outside auth scope unchanged for later migration steps.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `rg "db\.query" backend/app/core/auth.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Convert student and subject CRUD repository/service paths to raw SQL writes and explicit update helpers.
+- Continue removing direct ORM queries from `business_service.py` outside the auth scope in later migration steps.
+
+## 2026-06-14 - SQL Raw Repository Migration Step 2 Student And Subject CRUD
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added a whitelisted `update_by_id` helper for raw SQL updates where table and column names are developer-controlled constants.
+- Converted student CRUD repository functions to parameterized raw SQL:
+  - `get_students`
+  - `get_student`
+  - `create_student`
+  - `update_student`
+  - `deactivate_student`
+- Converted subject CRUD repository functions to parameterized raw SQL:
+  - `get_subjects`
+  - `get_subject`
+  - `get_subject_by_name_level`
+  - `create_subject`
+  - `update_subject`
+  - `deactivate_subject`
+- Updated student and subject service flows to use explicit repository SQL write functions instead of `repo.apply_updates`, direct `status` assignment, `repo.touch_model`, or `repo.refresh`.
+- Kept tutor, request, class, session, invoice, and payment ORM paths unchanged for later migration steps.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "repo\\.apply_updates\\(student|repo\\.apply_updates\\(subject|student\\.status\\s*=|subject\\.status\\s*=|repo\\.refresh\\(db, student\\)|repo\\.refresh\\(db, subject\\)" backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Convert tutor CRUD, tutor capabilities, and tutor availability to raw SQL.
+- Continue removing repository ORM access in later batches; current leftovers are expected outside the student/subject scope.
+
+## 2026-06-14 - SQL Raw Repository Migration Step 3 Tutor Profile
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Converted tutor list/detail/create/update/deactivate repository functions to parameterized raw SQL.
+- Added tutor update whitelist support through `TUTOR_UPDATE_COLUMNS`.
+- Added capability attachment for tutor read objects so existing response mappers can still read `tutor.capabilities` and `capability.subject`.
+- Converted tutor capability list/create/update/delete repository functions to parameterized raw SQL.
+- Converted tutor availability list/detail/create/update/delete repository functions to parameterized raw SQL.
+- Updated tutor service flows to use explicit repository SQL functions for:
+  - tutor update and deactivate
+  - tutor subject rebuild without `db.flush()`
+  - existing tutor capability update
+  - tutor availability update/delete
+- Kept assignment, request, class, session, invoice, payment, and dashboard ORM paths unchanged for later migration steps.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "repo\\.apply_updates\\(tutor|repo\\.apply_updates\\(availability|tutor\\.status\\s*=|repo\\.touch_model\\(tutor|repo\\.touch_model\\(existing|db\\.flush\\(\\)|repo\\.delete_model\\(db, availability\\)" backend/app/services/business_service.py`
+- `rg -n "db\\.query\\((Tutor|TutorCapability|TutorAvailability)\\)|db\\.add\\((tutor|capability|availability)\\)|db\\.delete\\((capability|availability)\\)|joinedload\\(Tutor\\.capabilities" backend/app/repositories/data_repository.py`
+
+### Remaining Issues / Next Step
+
+- Convert learning request CRUD and detail response compatibility to raw SQL.
+- Continue removing `TutorAssignment` ORM access in the next request/assignment migration steps.
+
+## 2026-06-14 - SQL Raw Repository Migration Step 4 Learning Request CRUD
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Converted learning request list/detail/create/update/cancel repository functions to parameterized raw SQL.
+- Added `LEARNING_REQUEST_UPDATE_COLUMNS` for whitelisted raw SQL updates.
+- Added learning request read compatibility attachment so response mappers can still access `request.student` and `request.subject`.
+- Updated learning request service update/cancel flows to call explicit repository SQL functions instead of mutating returned objects.
+- Kept assignment-driven request status transitions unchanged for the next assignment migration step.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "repo\\.apply_updates\\(request|def update_learning_request|def cancel_learning_request|repo\\.update_learning_request|repo\\.cancel_learning_request" backend/app/services/business_service.py`
+- `rg -n "db\\.query\\(LearningRequest\\)|db\\.add\\(request\\)|def get_learning_requests|def create_learning_request" backend/app/repositories/data_repository.py`
+
+### Remaining Issues / Next Step
+
+- Convert assignment CRUD and assignment/request status transitions to explicit raw SQL.
+- Continue removing class, schedule, session, finance, and dashboard ORM paths in later batches.
+
+## 2026-06-14 - SQL Raw Repository Migration Step 5 Assignment CRUD And Transitions
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Converted assignment list/detail/create/update/cancel repository functions to parameterized raw SQL.
+- Added `ASSIGNMENT_UPDATE_COLUMNS` for whitelisted assignment updates.
+- Added assignment read compatibility attachment so existing checks can still use `assignment.study_class` when an assignment already has a class.
+- Updated create-assignment flow to set the linked learning request to `ASSIGNED` with explicit repository SQL.
+- Updated update/cancel assignment flows to set the linked learning request back to `PENDING` with explicit repository SQL when assignment status becomes `CANCELED`.
+- Removed direct assignment/request object mutation from assignment service flows.
+- Kept class, schedule, session, finance, and dashboard ORM paths unchanged for later migration steps.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "request\\.status\\s*=|assignment\\.status\\s*=|repo\\.apply_updates\\(assignment|repo\\.touch_model\\(assignment|repo\\.touch_model\\(request\\)" backend/app/services/business_service.py`
+- `rg -n "db\\.query\\(TutorAssignment\\)|db\\.add\\(assignment\\)|repo\\.apply_updates\\(assignment|assignment\\.status\\s*=|request\\.status\\s*=" backend/app`
+
+### Remaining Issues / Next Step
+
+- Convert class list/detail to `VW_STUDY_CLASS_DETAIL` and class writes to raw SQL.
+- Continue migrating schedule, session, finance, and dashboard paths in later steps.
+
+## 2026-06-14 - SQL Raw Repository Migration Step 6 Class Read/Write And Tuition Aggregates
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `backend/app/core/auth.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Converted class list/detail reads to `VW_STUDY_CLASS_DETAIL`.
+- Added raw SQL schedule display and next scheduled lesson attachment for view-backed class response compatibility.
+- Converted class create/update/cancel repository functions to parameterized raw SQL.
+- Added `CLASS_UPDATE_COLUMNS` for whitelisted class updates.
+- Updated `class_to_response()` to support view-backed flat rows while keeping the old fallback path for not-yet-migrated callers.
+- Updated class access checks to authorize view-backed class rows by direct `student_id` and `tutor_id` fields.
+- Converted class-id payment auto-invoice snapshot calculation to a raw SQL aggregate.
+- Converted `/classes/{id}/tuition-summary` to a realtime raw SQL aggregate instead of looping over ORM sessions and payments.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "repo\\.apply_updates\\(study_class|repo\\.touch_model\\(study_class|db\\.query\\(StudyClass\\)|db\\.add\\(study_class\\)|_invoice_snapshot_from_class_period|study_class\\.invoices" backend/app`
+- `rg -n "study_class\\.sessions" backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Convert schedule CRUD and schedule filters to raw SQL.
+- Continue migrating session, finance, and dashboard paths in later steps.
+
+## 2026-06-14 - SQL Raw Repository Migration Step 7 Schedule CRUD And Filters
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Converted schedule list filters to parameterized raw SQL with normalized joins from `CLASS_SCHEDULE` through class, assignment, and learning request.
+- Converted schedule detail and create repository functions to parameterized raw SQL against `CLASS_SCHEDULE`.
+- Added `SCHEDULE_UPDATE_COLUMNS` for whitelisted schedule updates.
+- Added explicit `update_schedule` and `deactivate_schedule` repository functions.
+- Updated schedule service update/delete flows to call repository SQL updates instead of mutating returned schedule objects.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "repo\\.apply_updates\\(schedule|schedule\\.status\\s*=|repo\\.touch_model\\(schedule|db\\.query\\(ClassSchedule\\)|db\\.add\\(schedule\\)" backend/app`
+- `rg -n "def get_schedules|def get_schedule|def create_schedule|def update_schedule|def deactivate_schedule|repo\\.update_schedule|repo\\.deactivate_schedule" backend/app/repositories/data_repository.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Convert lesson session CRUD, status updates, and session filters to raw SQL.
+- Continue migrating invoice, payment, and dashboard paths in later steps.
