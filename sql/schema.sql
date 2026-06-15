@@ -56,6 +56,14 @@ IF OBJECT_ID(N'SP_ASSIGN_TUTOR_TO_REQUEST', N'P') IS NOT NULL
     DROP PROCEDURE SP_ASSIGN_TUTOR_TO_REQUEST;
 GO
 
+IF OBJECT_ID(N'SP_CREATE_CLASS_FROM_ASSIGNMENT', N'P') IS NOT NULL
+    DROP PROCEDURE SP_CREATE_CLASS_FROM_ASSIGNMENT;
+GO
+
+IF OBJECT_ID(N'SP_CREATE_INVOICE_FOR_PERIOD', N'P') IS NOT NULL
+    DROP PROCEDURE SP_CREATE_INVOICE_FOR_PERIOD;
+GO
+
 IF OBJECT_ID(N'FN_INVOICE_REMAINING_AMOUNT', N'FN') IS NOT NULL
     DROP FUNCTION FN_INVOICE_REMAINING_AMOUNT;
 GO
@@ -566,71 +574,78 @@ BEGIN
     DECLARE @request_subject_id INT;
     DECLARE @assignment_id INT;
 
-    BEGIN TRANSACTION;
+    BEGIN TRY
+        BEGIN TRANSACTION;
 
-    SELECT
-        @request_status = lr.status,
-        @request_subject_id = lr.subject_id
-    FROM LEARNING_REQUEST lr WITH (UPDLOCK, HOLDLOCK)
-    WHERE lr.request_id = @request_id;
+        SELECT
+            @request_status = lr.status,
+            @request_subject_id = lr.subject_id
+        FROM LEARNING_REQUEST lr WITH (UPDLOCK, HOLDLOCK)
+        WHERE lr.request_id = @request_id;
 
-    IF @request_status IS NULL
-        THROW 50000, 'Learning request not found', 1;
+        IF @request_status IS NULL
+            THROW 50000, 'Learning request not found', 1;
 
-    IF @request_status = 'CANCELED'
-        THROW 50000, 'Learning request is canceled', 1;
+        IF @request_status = 'CANCELED'
+            THROW 50000, 'Learning request is canceled', 1;
 
-    IF @request_status <> 'PENDING'
-        THROW 50000, 'Learning request is not pending', 1;
+        IF @request_status <> 'PENDING'
+            THROW 50000, 'Learning request is not pending', 1;
 
-    IF EXISTS (
-        SELECT 1
-        FROM TUTOR_ASSIGNMENT ta WITH (UPDLOCK, HOLDLOCK)
-        WHERE ta.request_id = @request_id
-          AND ta.status = 'ASSIGNED'
-    )
-        THROW 50000, 'Learning request already has an active assignment', 1;
+        IF EXISTS (
+            SELECT 1
+            FROM TUTOR_ASSIGNMENT ta WITH (UPDLOCK, HOLDLOCK)
+            WHERE ta.request_id = @request_id
+              AND ta.status = 'ASSIGNED'
+        )
+            THROW 50000, 'Learning request already has an active assignment', 1;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM TUTOR t
-        WHERE t.tutor_id = @tutor_id
-          AND t.status = 'ACTIVE'
-    )
-        THROW 50000, 'Tutor must be ACTIVE to receive an assignment', 1;
+        IF NOT EXISTS (
+            SELECT 1
+            FROM TUTOR t
+            WHERE t.tutor_id = @tutor_id
+              AND t.status = 'ACTIVE'
+        )
+            THROW 50000, 'Tutor must be ACTIVE to receive an assignment', 1;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM TUTOR_CAPABILITY tc
-        WHERE tc.tutor_id = @tutor_id
-          AND tc.subject_id = @request_subject_id
-    )
-        THROW 50000, 'Tutor does not have capability for requested subject', 1;
+        IF NOT EXISTS (
+            SELECT 1
+            FROM TUTOR_CAPABILITY tc
+            WHERE tc.tutor_id = @tutor_id
+              AND tc.subject_id = @request_subject_id
+        )
+            THROW 50000, 'Tutor does not have capability for requested subject', 1;
 
-    INSERT INTO TUTOR_ASSIGNMENT (
-        request_id,
-        tutor_id,
-        staff_id,
-        status,
-        note
-    )
-    VALUES (
-        @request_id,
-        @tutor_id,
-        @staff_id,
-        'ASSIGNED',
-        @note
-    );
+        INSERT INTO TUTOR_ASSIGNMENT (
+            request_id,
+            tutor_id,
+            staff_id,
+            status,
+            note
+        )
+        VALUES (
+            @request_id,
+            @tutor_id,
+            @staff_id,
+            'ASSIGNED',
+            @note
+        );
 
-    SET @assignment_id = CAST(SCOPE_IDENTITY() AS INT);
+        SET @assignment_id = CAST(SCOPE_IDENTITY() AS INT);
 
-    UPDATE LEARNING_REQUEST
-    SET
-        status = 'ASSIGNED',
-        updated_at = SYSUTCDATETIME()
-    WHERE request_id = @request_id;
+        UPDATE LEARNING_REQUEST
+        SET
+            status = 'ASSIGNED',
+            updated_at = SYSUTCDATETIME()
+        WHERE request_id = @request_id;
 
-    COMMIT TRANSACTION;
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
 
     SELECT
         ta.assignment_id,
@@ -644,6 +659,193 @@ BEGIN
         ta.updated_at
     FROM TUTOR_ASSIGNMENT ta
     WHERE ta.assignment_id = @assignment_id;
+END;
+GO
+
+CREATE PROCEDURE SP_CREATE_CLASS_FROM_ASSIGNMENT
+    @assignment_id INT,
+    @class_code NVARCHAR(50),
+    @tuition_fee_per_session DECIMAL(18,2),
+    @teaching_mode VARCHAR(20),
+    @location NVARCHAR(255) = NULL,
+    @start_date DATE,
+    @end_date DATE = NULL,
+    @status VARCHAR(20) = 'ACTIVE'
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @assignment_status VARCHAR(20);
+    DECLARE @class_id INT;
+
+    IF @tuition_fee_per_session IS NULL OR @tuition_fee_per_session <= 0
+        THROW 50000, 'tuition_fee_per_session must be greater than zero', 1;
+
+    IF @end_date IS NOT NULL AND @end_date < @start_date
+        THROW 50000, 'end_date must be on or after start_date', 1;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        SELECT
+            @assignment_status = ta.status
+        FROM TUTOR_ASSIGNMENT ta WITH (UPDLOCK, HOLDLOCK)
+        WHERE ta.assignment_id = @assignment_id;
+
+        IF @assignment_status IS NULL
+            THROW 50000, 'Assignment not found', 1;
+
+        IF @assignment_status <> 'ASSIGNED'
+            THROW 50000, 'Assignment must be ASSIGNED to create a class', 1;
+
+        IF EXISTS (
+            SELECT 1
+            FROM STUDY_CLASS sc WITH (UPDLOCK, HOLDLOCK)
+            WHERE sc.assignment_id = @assignment_id
+        )
+            THROW 50000, 'Assignment already has a class', 1;
+
+        INSERT INTO STUDY_CLASS (
+            assignment_id,
+            class_code,
+            tuition_fee_per_session,
+            teaching_mode,
+            location,
+            start_date,
+            end_date,
+            status
+        )
+        VALUES (
+            @assignment_id,
+            @class_code,
+            @tuition_fee_per_session,
+            @teaching_mode,
+            @location,
+            @start_date,
+            @end_date,
+            @status
+        );
+
+        SET @class_id = CAST(SCOPE_IDENTITY() AS INT);
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+
+    SELECT
+        sc.class_id,
+        sc.assignment_id,
+        sc.class_code,
+        sc.tuition_fee_per_session,
+        sc.teaching_mode,
+        sc.location,
+        sc.start_date,
+        sc.end_date,
+        sc.status,
+        sc.created_at,
+        sc.updated_at
+    FROM STUDY_CLASS sc
+    WHERE sc.class_id = @class_id;
+END;
+GO
+
+CREATE PROCEDURE SP_CREATE_INVOICE_FOR_PERIOD
+    @class_id INT,
+    @period_start DATE,
+    @period_end DATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @tuition_fee_per_session DECIMAL(18,2);
+    DECLARE @completed_sessions INT;
+    DECLARE @amount_due DECIMAL(18,2);
+    DECLARE @invoice_id INT;
+
+    IF @period_end < @period_start
+        THROW 50000, 'period_end must be on or after period_start', 1;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        SELECT
+            @tuition_fee_per_session = sc.tuition_fee_per_session
+        FROM STUDY_CLASS sc WITH (UPDLOCK, HOLDLOCK)
+        WHERE sc.class_id = @class_id;
+
+        IF @tuition_fee_per_session IS NULL
+            THROW 50000, 'Class not found', 1;
+
+        IF EXISTS (
+            SELECT 1
+            FROM TUITION_INVOICE ti WITH (UPDLOCK, HOLDLOCK)
+            WHERE ti.class_id = @class_id
+              AND ti.period_start = @period_start
+              AND ti.period_end = @period_end
+        )
+            THROW 50000, 'Invoice already exists for this class and period', 1;
+
+        SELECT
+            @completed_sessions = COUNT(*)
+        FROM LESSON_SESSION ls
+        WHERE ls.class_id = @class_id
+          AND ls.status = 'COMPLETED'
+          AND ls.lesson_date BETWEEN @period_start AND @period_end;
+
+        SET @completed_sessions = COALESCE(@completed_sessions, 0);
+        SET @amount_due = @completed_sessions * @tuition_fee_per_session;
+
+        INSERT INTO TUITION_INVOICE (
+            class_id,
+            period_start,
+            period_end,
+            completed_sessions,
+            tuition_fee_per_session,
+            amount_due,
+            amount_paid,
+            status
+        )
+        VALUES (
+            @class_id,
+            @period_start,
+            @period_end,
+            @completed_sessions,
+            @tuition_fee_per_session,
+            @amount_due,
+            0,
+            'UNPAID'
+        );
+
+        SET @invoice_id = CAST(SCOPE_IDENTITY() AS INT);
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+
+    SELECT
+        ti.invoice_id,
+        ti.class_id,
+        ti.period_start,
+        ti.period_end,
+        ti.completed_sessions,
+        ti.tuition_fee_per_session,
+        ti.amount_due,
+        ti.amount_paid,
+        ti.status,
+        ti.created_at,
+        ti.updated_at
+    FROM TUITION_INVOICE ti
+    WHERE ti.invoice_id = @invoice_id;
 END;
 GO
 
@@ -675,107 +877,114 @@ BEGIN
     IF @status NOT IN ('SUCCESS', 'CANCELED', 'REFUNDED')
         THROW 50000, 'Invalid payment status', 1;
 
-    BEGIN TRANSACTION;
-
-    IF @resolved_invoice_id IS NULL
-    BEGIN
-        IF @class_id IS NULL
-            THROW 50000, 'invoice_id or class_id is required', 1;
-
-        IF @period_start IS NULL OR @period_end IS NULL
-            THROW 50000, 'period_start and period_end are required when invoice_id is missing', 1;
-
-        IF @period_end < @period_start
-            THROW 50000, 'period_end must be on or after period_start', 1;
-
-        SELECT
-            @resolved_invoice_id = invoice_id
-        FROM TUITION_INVOICE
-        WHERE class_id = @class_id
-          AND period_start = @period_start
-          AND period_end = @period_end;
+    BEGIN TRY
+        BEGIN TRANSACTION;
 
         IF @resolved_invoice_id IS NULL
         BEGIN
-            SELECT
-                @tuition_fee_per_session = tuition_fee_per_session
-            FROM STUDY_CLASS
-            WHERE class_id = @class_id;
+            IF @class_id IS NULL
+                THROW 50000, 'invoice_id or class_id is required', 1;
 
-            IF @tuition_fee_per_session IS NULL
-                THROW 50000, 'Class not found', 1;
+            IF @period_start IS NULL OR @period_end IS NULL
+                THROW 50000, 'period_start and period_end are required when invoice_id is missing', 1;
+
+            IF @period_end < @period_start
+                THROW 50000, 'period_end must be on or after period_start', 1;
 
             SELECT
-                @completed_sessions = COUNT(*)
-            FROM LESSON_SESSION
+                @resolved_invoice_id = invoice_id
+            FROM TUITION_INVOICE
             WHERE class_id = @class_id
-              AND status = 'COMPLETED'
-              AND lesson_date BETWEEN @period_start AND @period_end;
+              AND period_start = @period_start
+              AND period_end = @period_end;
 
-            SET @completed_sessions = COALESCE(@completed_sessions, 0);
-            SET @amount_due = @completed_sessions * @tuition_fee_per_session;
+            IF @resolved_invoice_id IS NULL
+            BEGIN
+                SELECT
+                    @tuition_fee_per_session = tuition_fee_per_session
+                FROM STUDY_CLASS
+                WHERE class_id = @class_id;
 
-            INSERT INTO TUITION_INVOICE (
-                class_id,
-                period_start,
-                period_end,
-                completed_sessions,
-                tuition_fee_per_session,
-                amount_due,
-                amount_paid,
-                status
-            )
-            VALUES (
-                @class_id,
-                @period_start,
-                @period_end,
-                @completed_sessions,
-                @tuition_fee_per_session,
-                @amount_due,
-                0,
-                'UNPAID'
-            );
+                IF @tuition_fee_per_session IS NULL
+                    THROW 50000, 'Class not found', 1;
 
-            SET @resolved_invoice_id = CAST(SCOPE_IDENTITY() AS INT);
+                SELECT
+                    @completed_sessions = COUNT(*)
+                FROM LESSON_SESSION
+                WHERE class_id = @class_id
+                  AND status = 'COMPLETED'
+                  AND lesson_date BETWEEN @period_start AND @period_end;
+
+                SET @completed_sessions = COALESCE(@completed_sessions, 0);
+                SET @amount_due = @completed_sessions * @tuition_fee_per_session;
+
+                INSERT INTO TUITION_INVOICE (
+                    class_id,
+                    period_start,
+                    period_end,
+                    completed_sessions,
+                    tuition_fee_per_session,
+                    amount_due,
+                    amount_paid,
+                    status
+                )
+                VALUES (
+                    @class_id,
+                    @period_start,
+                    @period_end,
+                    @completed_sessions,
+                    @tuition_fee_per_session,
+                    @amount_due,
+                    0,
+                    'UNPAID'
+                );
+
+                SET @resolved_invoice_id = CAST(SCOPE_IDENTITY() AS INT);
+            END
         END
-    END
 
-    IF NOT EXISTS (SELECT 1 FROM TUITION_INVOICE WHERE invoice_id = @resolved_invoice_id)
-        THROW 50000, 'Invoice not found', 1;
+        IF NOT EXISTS (SELECT 1 FROM TUITION_INVOICE WHERE invoice_id = @resolved_invoice_id)
+            THROW 50000, 'Invoice not found', 1;
 
-    IF EXISTS (
-        SELECT 1
-        FROM TUITION_INVOICE
-        WHERE invoice_id = @resolved_invoice_id
-          AND status = 'CANCELED'
-    )
-        THROW 50000, 'Cannot record payment for a canceled invoice', 1;
+        IF EXISTS (
+            SELECT 1
+            FROM TUITION_INVOICE
+            WHERE invoice_id = @resolved_invoice_id
+              AND status = 'CANCELED'
+        )
+            THROW 50000, 'Cannot record payment for a canceled invoice', 1;
 
-    IF @status = 'SUCCESS' AND dbo.FN_INVOICE_REMAINING_AMOUNT(@resolved_invoice_id) < @amount_paid
-        THROW 50000, 'Payment amount exceeds invoice remaining amount', 1;
+        IF @status = 'SUCCESS' AND dbo.FN_INVOICE_REMAINING_AMOUNT(@resolved_invoice_id) < @amount_paid
+            THROW 50000, 'Payment amount exceeds invoice remaining amount', 1;
 
-    INSERT INTO TUITION_PAYMENT (
-        invoice_id,
-        staff_id,
-        payment_date,
-        amount_paid,
-        payment_method,
-        note,
-        status
-    )
-    VALUES (
-        @resolved_invoice_id,
-        @staff_id,
-        COALESCE(@payment_date, SYSUTCDATETIME()),
-        @amount_paid,
-        @payment_method,
-        @note,
-        @status
-    );
+        INSERT INTO TUITION_PAYMENT (
+            invoice_id,
+            staff_id,
+            payment_date,
+            amount_paid,
+            payment_method,
+            note,
+            status
+        )
+        VALUES (
+            @resolved_invoice_id,
+            @staff_id,
+            COALESCE(@payment_date, SYSUTCDATETIME()),
+            @amount_paid,
+            @payment_method,
+            @note,
+            @status
+        );
 
-    SET @payment_id = CAST(SCOPE_IDENTITY() AS INT);
+        SET @payment_id = CAST(SCOPE_IDENTITY() AS INT);
 
-    COMMIT TRANSACTION;
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
 
     SELECT @payment_id AS payment_id, @resolved_invoice_id AS invoice_id;
 END;

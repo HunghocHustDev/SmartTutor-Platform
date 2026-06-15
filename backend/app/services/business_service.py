@@ -1130,19 +1130,19 @@ def create_study_class(db: Session, payload: StudyClassCreate) -> dict:
         raise HTTPException(status_code=400, detail="Assignment must be ASSIGNED to create a class")
     if assignment.study_class:
         raise HTTPException(status_code=409, detail="Assignment already has a class")
+    teaching_mode = _normalize_mode(payload.teaching_mode, {"ONLINE", "OFFLINE"}, "teaching_mode")
+    class_status = _normalize_class_status(payload.status) or "ACTIVE"
 
-    study_class = repo.create_class(
+    study_class = repo.call_create_class_from_assignment(
         db,
-        StudyClass(
-            assignment_id=assignment.assignment_id,
-            class_code=payload.class_code or f"CLS-{assignment.assignment_id:04d}",
-            tuition_fee_per_session=payload.tuition_fee_per_session,
-            teaching_mode=_normalize_mode(payload.teaching_mode, {"ONLINE", "OFFLINE"}, "teaching_mode"),
-            location=payload.location,
-            start_date=payload.start_date,
-            end_date=payload.end_date,
-            status=_normalize_class_status(payload.status) or "ACTIVE",
-        ),
+        assignment_id=assignment.assignment_id,
+        class_code=payload.class_code or f"CLS-{assignment.assignment_id:04d}",
+        tuition_fee_per_session=payload.tuition_fee_per_session,
+        teaching_mode=teaching_mode,
+        location=payload.location,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        status=class_status,
     )
     repo.commit(db)
     return class_to_response(repo.get_class(db, study_class.class_id))
@@ -1317,9 +1317,13 @@ def create_invoice(db: Session, payload: TuitionInvoiceCreate) -> dict:
     existing_invoice = repo.get_invoice_by_class_period(db, payload.class_id, payload.period_start, payload.period_end)
     if existing_invoice:
         raise HTTPException(status_code=409, detail="Invoice already exists for this class and period")
-    data = payload.model_dump()
-    data["status"] = _normalize_invoice_status(data["status"])
-    invoice = repo.create_invoice(db, TuitionInvoice(**data))
+    _normalize_invoice_status(payload.status)
+    invoice = repo.call_create_invoice_for_period(
+        db,
+        class_id=payload.class_id,
+        period_start=payload.period_start,
+        period_end=payload.period_end,
+    )
     repo.commit(db)
     return invoice_to_response(repo.get_invoice(db, invoice.invoice_id))
 

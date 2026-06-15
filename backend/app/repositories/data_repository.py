@@ -1550,6 +1550,45 @@ def create_class(db: Session, study_class: StudyClass) -> StudyClass:
     return to_obj(row)
 
 
+def call_create_class_from_assignment(
+    db: Session,
+    assignment_id: int,
+    class_code: str,
+    tuition_fee_per_session,
+    teaching_mode: str,
+    location: Optional[str],
+    start_date: date,
+    end_date: Optional[date],
+    status: str,
+) -> StudyClass:
+    row = db.execute(
+        text(
+            """
+            EXEC SP_CREATE_CLASS_FROM_ASSIGNMENT
+                @assignment_id = :assignment_id,
+                @class_code = :class_code,
+                @tuition_fee_per_session = :tuition_fee_per_session,
+                @teaching_mode = :teaching_mode,
+                @location = :location,
+                @start_date = :start_date,
+                @end_date = :end_date,
+                @status = :status
+            """
+        ),
+        {
+            "assignment_id": assignment_id,
+            "class_code": class_code,
+            "tuition_fee_per_session": tuition_fee_per_session,
+            "teaching_mode": teaching_mode,
+            "location": location,
+            "start_date": start_date,
+            "end_date": end_date,
+            "status": status,
+        },
+    ).mappings().first()
+    return to_obj(row)
+
+
 def update_class(db: Session, class_id: int, data: dict) -> None:
     update_by_id(db, "STUDY_CLASS", "class_id", class_id, data, CLASS_UPDATE_COLUMNS)
 
@@ -1952,6 +1991,30 @@ def create_invoice(db: Session, invoice: TuitionInvoice) -> TuitionInvoice:
             "amount_due": invoice.amount_due,
             "amount_paid": invoice.amount_paid,
             "status": invoice.status,
+        },
+    ).mappings().first()
+    return _attach_invoice_context(to_obj(row), db)
+
+
+def call_create_invoice_for_period(
+    db: Session,
+    class_id: int,
+    period_start: date,
+    period_end: date,
+) -> TuitionInvoice:
+    row = db.execute(
+        text(
+            """
+            EXEC SP_CREATE_INVOICE_FOR_PERIOD
+                @class_id = :class_id,
+                @period_start = :period_start,
+                @period_end = :period_end
+            """
+        ),
+        {
+            "class_id": class_id,
+            "period_start": period_start,
+            "period_end": period_end,
         },
     ).mappings().first()
     return _attach_invoice_context(to_obj(row), db)

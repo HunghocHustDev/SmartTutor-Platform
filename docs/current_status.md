@@ -174,6 +174,34 @@ uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-
   - assignment creation still keeps service-layer validation and authorization checks, but the transactional insert + request-status transition now runs inside SQL Server
   - update/cancel assignment flows remain on the existing explicit SQL path for this phase
   - this batch is compile-verified; direct `EXEC` validation and live HTTP reruns are still pending
+- DB Object Migration Plan Phase 3 is now implemented and compile-verified:
+  - `sql/schema.sql` now defines `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+  - `POST /classes` now calls the procedure through repository helper `call_create_class_from_assignment(...)`
+  - class creation still keeps service-layer validation and normalization checks, but the transactional assignment-state check + class insert now runs inside SQL Server
+  - the procedure follows the current repo schema by accepting `class_code`, `tuition_fee_per_session`, `teaching_mode`, `location`, `start_date`, `end_date`, and `status`
+  - class update/cancel flows remain on the existing explicit SQL path for this phase
+  - this batch is compile-verified; direct `EXEC` validation and live HTTP reruns are still pending
+- DB Object Migration Plan Phase 4 is now implemented and compile-verified:
+  - `sql/schema.sql` now defines `SP_CREATE_INVOICE_FOR_PERIOD`
+  - `POST /invoices` now calls the procedure through repository helper `call_create_invoice_for_period(...)`
+  - invoice creation still keeps service-layer class lookup, period validation, duplicate-period guard, and status validation
+  - the procedure follows the current repo schema by accepting `class_id`, `period_start`, and `period_end`, then computing `completed_sessions`, `tuition_fee_per_session`, `amount_due`, `amount_paid = 0`, and `status = 'UNPAID'`
+  - invoice create payload snapshot fields remain accepted for compatibility, but the persisted snapshot is now computed from SQL Server using `COMPLETED` sessions in the requested period
+  - invoice update/cancel flows remain on the existing explicit SQL path for this phase
+  - this batch is compile-verified; direct `EXEC` validation and live HTTP reruns are still pending
+- Live verification is now complete for DB object migration Phases 1-4:
+  - reran `sql/schema.sql` successfully against SQL Server
+  - reseeded `sql/sample_data.sql` successfully after schema reset
+  - direct `EXEC` checks passed for:
+    - `SP_ASSIGN_TUTOR_TO_REQUEST`
+    - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+    - `SP_CREATE_INVOICE_FOR_PERIOD`
+  - invalid `EXEC` cases now return clean SQL errors without leaving the session in a doomed transaction state
+  - auth-aware HTTP smoke test passes end to end after the Phase 2-4 procedure migrations
+- Procedure error paths are now hardened for live SQL usage:
+  - `SP_ASSIGN_TUTOR_TO_REQUEST`, `SP_CREATE_CLASS_FROM_ASSIGNMENT`, `SP_CREATE_INVOICE_FOR_PERIOD`, and `SP_CREATE_TUITION_PAYMENT` now wrap transactional bodies in `TRY/CATCH`
+  - failed procedure executions explicitly `ROLLBACK` before rethrowing
+  - this prevents follow-up commands in the same SQL session from failing with transaction state errors after one invalid procedure call
 - Final raw-SQL cleanup is complete for repository/service runtime access patterns:
   - `create_user`, `get_staff`, and `create_staff` no longer use ORM `db.add`, `db.flush`, or `db.query`
   - `backend/app/repositories/data_repository.py` and `backend/app/services/business_service.py` now return no matches for `db.query`, `db.add`, `db.delete`, `db.refresh`, or `db.flush`
@@ -289,13 +317,12 @@ powershell -ExecutionPolicy Bypass -File .\sql\reset_demo_utf8.ps1 -Seed sample
   - execute `sql/schema.sql`
   - run focused `SELECT` checks against `VW_LEARNING_REQUEST_DETAIL`, `VW_LESSON_SESSION_DETAIL`, `VW_INVOICE_DETAIL`, and `FN_CLASS_TUITION_SUMMARY`
   - rerun the auth-aware HTTP smoke test
-- rerun direct SQL Server validation for DB Object Migration Plan Phase 2:
-  - execute `sql/schema.sql`
-  - run focused `EXEC SP_ASSIGN_TUTOR_TO_REQUEST ...` checks for valid and invalid cases
-  - rerun the auth-aware HTTP smoke test
-- after the Phase 2 live verification, implement the remaining command procedures in order:
-  - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
-  - `SP_CREATE_INVOICE_FOR_PERIOD`
+- add focused negative HTTP tests for the newer procedure-backed flows:
+  - assignment procedure invalid tutor capability / non-pending request
+  - class procedure duplicate class / invalid assignment state
+  - invoice procedure duplicate period / missing class
+- consider tightening the invoice create API contract so client-supplied snapshot fields are clearly deprecated if the frontend no longer needs to send them
+- refresh `docs/completion_matrix.md` with explicit evidence notes for the Phase 1-4 live verification batch
 - keep `TRG_TUITION_PAYMENT_RECALC_INVOICE` as the finance consistency trigger and avoid adding hidden-workflow triggers
 - verify the newer frontend screens against live backend requests, not just build/code audit
 - add focused negative HTTP tests for the service-layer validation paths added in this batch

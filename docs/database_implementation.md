@@ -65,6 +65,8 @@ LEARNING_REQUEST
 | --- | --- | --- |
 | `SP_CREATE_TUITION_PAYMENT` | Create payment from `invoice_id` or `class_id`, optionally auto-create a period invoice snapshot, validate canceled invoice and remaining amount, insert payment, rely on trigger for invoice recalc | Used by `POST /payments` |
 | `SP_ASSIGN_TUTOR_TO_REQUEST` | Validate request/tutor/capability inside one transaction, insert assignment, update request status to `ASSIGNED`, and return the created assignment row | Used by `POST /assignments` |
+| `SP_CREATE_CLASS_FROM_ASSIGNMENT` | Validate assignment state and one-assignment-one-class rule inside one transaction, insert `STUDY_CLASS`, and return the created class row | Used by `POST /classes` |
+| `SP_CREATE_INVOICE_FOR_PERIOD` | Validate class/period, reject duplicate snapshots, compute invoice snapshot from completed sessions in the period, insert `TUITION_INVOICE`, and return the created invoice row | Used by `POST /invoices` |
 
 ## Verified Inventory Notes
 
@@ -90,6 +92,11 @@ The next DB-object batch should therefore focus on:
 
 The assignment procedure is now implemented in code/schema, so the next procedure work should focus on:
 
+- `SP_CREATE_INVOICE_FOR_PERIOD`
+
+The planned command procedures are now implemented in code/schema for:
+
+- `SP_ASSIGN_TUTOR_TO_REQUEST`
 - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
 - `SP_CREATE_INVOICE_FOR_PERIOD`
 
@@ -143,5 +150,18 @@ uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-
 - Auth-aware HTTP smoke test passed after the raw SQL finance migration on 2026-06-15.
 - Phase 1 DB object migration changes were compile-verified on 2026-06-15, but direct SQL Server object checks and live HTTP reruns have not been repeated yet for this specific batch.
 - Phase 2 assignment-procedure integration was compile-verified on 2026-06-15, but direct `EXEC` checks and live HTTP reruns have not been repeated yet for this specific batch.
+- Phase 3 class-procedure integration was compile-verified on 2026-06-15, but direct `EXEC` checks and live HTTP reruns have not been repeated yet for this specific batch.
+- Phase 4 invoice-procedure integration was compile-verified on 2026-06-15, but direct `EXEC` checks and live HTTP reruns have not been repeated yet for this specific batch.
+- Phase 1-4 DB object migration live verification now completed on 2026-06-15:
+  - `sql/schema.sql` reran successfully
+  - `sql/sample_data.sql` reseeded successfully
+  - direct `EXEC` verification passed for `SP_ASSIGN_TUTOR_TO_REQUEST`, `SP_CREATE_CLASS_FROM_ASSIGNMENT`, and `SP_CREATE_INVOICE_FOR_PERIOD`
+  - auth-aware HTTP smoke test passed after the procedure-backed assignment/class/invoice migrations
+- Procedure transaction handling is now hardened for live error paths:
+  - `SP_ASSIGN_TUTOR_TO_REQUEST`
+  - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+  - `SP_CREATE_INVOICE_FOR_PERIOD`
+  - `SP_CREATE_TUITION_PAYMENT`
+  now use `TRY/CATCH` plus explicit `ROLLBACK` before rethrowing, preventing doomed-session behavior after invalid procedure calls in the same SQL session.
 - `backend/app/repositories/data_repository.py` and `backend/app/services/business_service.py` now return no matches for `db.query`, `db.add`, `db.delete`, `db.refresh`, `db.flush`, `joinedload`, or `.options(`.
 - Planned next DB-object expansion is documented in `docs/db_object_migration_plan.md`.

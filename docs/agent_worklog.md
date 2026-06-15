@@ -828,3 +828,140 @@
 - Run direct SQL Server validation for `SP_ASSIGN_TUTOR_TO_REQUEST` with valid and invalid `EXEC` cases.
 - Rerun the auth-aware HTTP smoke test so the assignment procedure migration has live endpoint evidence.
 - Continue with DB object migration Phase 3: `SP_CREATE_CLASS_FROM_ASSIGNMENT`.
+
+## 2026-06-15 - DB Object Migration Phase 3 Class Creation Procedure
+
+### Changed Files
+
+- `sql/schema.sql`
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/database_implementation.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added `SP_CREATE_CLASS_FROM_ASSIGNMENT` to `sql/schema.sql`.
+- The procedure now:
+  - locks and checks the target assignment
+  - rejects missing assignments
+  - rejects assignments not in `ASSIGNED` status
+  - rejects duplicate classes for the same assignment
+  - validates `tuition_fee_per_session > 0`
+  - validates `end_date >= start_date` when `end_date` is present
+  - inserts `STUDY_CLASS`
+  - returns the created class row
+- Kept the procedure aligned with the real repository schema by accepting:
+  - `assignment_id`
+  - `class_code`
+  - `tuition_fee_per_session`
+  - `teaching_mode`
+  - `location`
+  - `start_date`
+  - `end_date`
+  - `status`
+- Added repository helper `call_create_class_from_assignment(...)` to execute the procedure.
+- Updated `business_service.create_study_class()` to keep API-facing validation but delegate the transactional write path to `SP_CREATE_CLASS_FROM_ASSIGNMENT`.
+- Left class update/cancel flows on the existing explicit SQL path for this phase.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `rg -n "SP_CREATE_CLASS_FROM_ASSIGNMENT|call_create_class_from_assignment|def create_study_class\\(|def create_class\\(" sql/schema.sql backend/app/repositories/data_repository.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Run direct SQL Server validation for `SP_CREATE_CLASS_FROM_ASSIGNMENT` with valid and invalid `EXEC` cases.
+- Rerun the auth-aware HTTP smoke test so the class procedure migration has live endpoint evidence.
+- Continue with DB object migration Phase 4: `SP_CREATE_INVOICE_FOR_PERIOD`.
+
+## 2026-06-15 - DB Object Migration Phase 4 Invoice Snapshot Procedure
+
+### Changed Files
+
+- `sql/schema.sql`
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/database_implementation.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added `SP_CREATE_INVOICE_FOR_PERIOD` to `sql/schema.sql`.
+- The procedure now:
+  - checks the target class exists
+  - rejects invalid period ranges
+  - rejects duplicate invoice snapshots for the same class and period
+  - computes `completed_sessions` from `LESSON_SESSION.status = 'COMPLETED'` within the requested period
+  - snapshots `tuition_fee_per_session` from `STUDY_CLASS`
+  - computes `amount_due = completed_sessions * tuition_fee_per_session`
+  - inserts `TUITION_INVOICE` with `amount_paid = 0` and `status = 'UNPAID'`
+  - returns the created invoice row
+- Kept the procedure aligned with the real repository schema by accepting only:
+  - `class_id`
+  - `period_start`
+  - `period_end`
+- Added repository helper `call_create_invoice_for_period(...)` to execute the procedure.
+- Updated `business_service.create_invoice()` to keep API-facing validation and duplicate guarding but delegate the transactional invoice snapshot write path to `SP_CREATE_INVOICE_FOR_PERIOD`.
+- Preserved compatibility at the request surface: invoice create payload fields like `completed_sessions`, `tuition_fee_per_session`, `amount_due`, `amount_paid`, and `status` are still accepted/validated, but the persisted snapshot is now computed by SQL Server from the real class/session state.
+- Left invoice update/cancel flows on the existing explicit SQL path for this phase.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `rg -n "SP_CREATE_INVOICE_FOR_PERIOD|call_create_invoice_for_period|def create_invoice\\(" sql/schema.sql backend/app/repositories/data_repository.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Run direct SQL Server validation for `SP_CREATE_INVOICE_FOR_PERIOD` with valid and invalid `EXEC` cases.
+- Rerun the auth-aware HTTP smoke test so the invoice procedure migration has live endpoint evidence.
+- Refresh evidence docs after the live verification batch and add focused negative tests for procedure-backed assignment/class/invoice creation flows.
+
+## 2026-06-15 - DB Object Migration Live Verification And Procedure Rollback Hardening
+
+### Changed Files
+
+- `sql/schema.sql`
+- `docs/current_status.md`
+- `docs/database_implementation.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Reran `sql/schema.sql` successfully against local SQL Server.
+- Reseeded the demo database successfully with `sql/sample_data.sql`.
+- Ran direct `EXEC` checks for the new procedure-backed flows:
+  - valid `SP_ASSIGN_TUTOR_TO_REQUEST`
+  - invalid assignment cases for non-pending request and tutor capability mismatch
+  - valid `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+  - invalid class cases for duplicate/existing class ownership
+  - valid `SP_CREATE_INVOICE_FOR_PERIOD`
+  - invalid invoice cases for duplicate period and missing class
+- Live verification exposed a transaction-state bug on procedure error paths: invalid procedure calls could leave the SQL session in a doomed transaction state because the transaction was not explicitly rolled back before rethrowing.
+- Hardened the transactional procedures with `TRY/CATCH` and explicit `ROLLBACK` before `THROW`:
+  - `SP_ASSIGN_TUTOR_TO_REQUEST`
+  - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+  - `SP_CREATE_INVOICE_FOR_PERIOD`
+  - `SP_CREATE_TUITION_PAYMENT`
+- Reran schema reset, reseed, and `EXEC` verification after the rollback fix and confirmed the procedures now fail cleanly without poisoning the session.
+- Started the backend locally and reran the auth-aware HTTP smoke test, which passed end to end after the procedure-backed assignment/class/invoice migrations.
+- Updated status and implementation docs to record the live verification evidence and the rollback-hardening fix.
+
+### Validation Performed
+
+- `sqlcmd -b -S localhost -d master -U sa -P 123456 -C -f 65001 -i sql/schema.sql`
+- `powershell -ExecutionPolicy Bypass -File .\\sql\\reset_demo_utf8.ps1 -Seed sample`
+- direct `sqlcmd` `EXEC` verification for:
+  - `SP_ASSIGN_TUTOR_TO_REQUEST`
+  - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+  - `SP_CREATE_INVOICE_FOR_PERIOD`
+- `uv run python -m compileall backend/app`
+- `uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-email staff1@smarttutor.local --staff-password staff123`
+
+### Remaining Issues / Next Step
+
+- Add focused negative HTTP tests so the new procedure-backed failure modes are captured at API level, not only in direct SQL `EXEC` checks.
+- Refresh `docs/completion_matrix.md` with explicit evidence notes for the Phase 1-4 live verification batch.
+- Consider narrowing the invoice create API payload surface if the frontend no longer needs to submit snapshot fields that are now computed in SQL Server.
