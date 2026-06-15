@@ -965,3 +965,223 @@
 - Add focused negative HTTP tests so the new procedure-backed failure modes are captured at API level, not only in direct SQL `EXEC` checks.
 - Refresh `docs/completion_matrix.md` with explicit evidence notes for the Phase 1-4 live verification batch.
 - Consider narrowing the invoice create API payload surface if the frontend no longer needs to submit snapshot fields that are now computed in SQL Server.
+
+## 2026-06-15 - Service Layer Decomposition On demo3
+
+### Changed Files
+
+- `backend/app/services/business_service.py`
+- `backend/app/services/common.py`
+- `backend/app/services/auth_service.py`
+- `backend/app/services/student_service.py`
+- `backend/app/services/tutor_service.py`
+- `backend/app/services/subject_service.py`
+- `backend/app/services/request_flow_service.py`
+- `backend/app/services/class_flow_service.py`
+- `backend/app/services/finance_service.py`
+- `backend/app/services/dashboard_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Created branch `demo3` from `demo2` as the refactor branch.
+- Split the oversized backend service module by responsibility instead of keeping all business flows in one file.
+- Moved shared constants, validators, lookup helpers, and response mappers into `backend/app/services/common.py`.
+- Extracted focused service modules for:
+  - auth
+  - student
+  - tutor
+  - subject
+  - learning request + assignment flow
+  - class + schedule + session flow
+  - invoice + payment flow
+  - dashboard summary
+- Replaced the old monolithic `business_service.py` implementation with a thin compatibility facade that re-exports the existing service surface.
+- Kept the current router and auth import style unchanged so this batch stays refactor-only and avoids API-contract churn.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+
+### Remaining Issues / Next Step
+
+- Run live HTTP smoke tests on `demo3` before doing a deeper backend split so the facade-based refactor has runtime evidence, not just compile evidence.
+- If decomposition continues, split one additional layer at a time:
+  - routers by domain, or
+  - repository code by bounded context
+- Keep future refactor batches behavior-preserving and avoid mixing structure cleanup with new feature work.
+
+## 2026-06-15 - Router Decomposition For Students And Tutors On demo3
+
+### Changed Files
+
+- `backend/app/routers/tutors.py`
+- `backend/app/routers/tutor_profiles.py`
+- `backend/app/routers/tutor_capabilities.py`
+- `backend/app/routers/tutor_availabilities.py`
+- `backend/app/routers/tutor_router_support.py`
+- `backend/app/routers/students.py`
+- `backend/app/routers/student_profiles.py`
+- `backend/app/routers/student_relations.py`
+- `backend/app/routers/student_router_support.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Continued the backend refactor on branch `demo3` by decomposing the larger student and tutor routers without changing endpoint paths.
+- Turned `backend/app/routers/tutors.py` into a thin aggregate router that includes three focused modules:
+  - tutor profile and tutor-owned class/schedule routes
+  - tutor subject/capability routes
+  - tutor availability routes
+- Added `tutor_router_support.py` so the tutor/staff ownership guard logic is defined once and reused across the tutor route modules.
+- Turned `backend/app/routers/students.py` into a thin aggregate router that includes two focused modules:
+  - student profile CRUD routes
+  - student-related learning request/class/schedule routes
+- Added `student_router_support.py` so student/staff ownership checks are reused instead of repeated inline.
+- Preserved the current `main.py` router include pattern and kept the existing `/students/...` and `/tutors/...` URL structure unchanged.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+
+### Remaining Issues / Next Step
+
+- Rerun live HTTP smoke tests on `demo3` so the router split has runtime evidence in addition to compile evidence.
+- If router decomposition continues, the next natural candidates are:
+  - `learning_requests` + `assignments`
+  - `classes` + `schedules` + `sessions`
+- Keep aggregate router files as stable entrypoints so `main.py` does not need wide churn during future splits.
+
+## 2026-06-15 - Router Decomposition For Request And Class Flows On demo3
+
+### Changed Files
+
+- `backend/app/routers/learning_requests.py`
+- `backend/app/routers/learning_request_profiles.py`
+- `backend/app/routers/learning_request_router_support.py`
+- `backend/app/routers/assignments.py`
+- `backend/app/routers/assignment_routes.py`
+- `backend/app/routers/classes.py`
+- `backend/app/routers/class_profiles.py`
+- `backend/app/routers/class_finance.py`
+- `backend/app/routers/class_router_support.py`
+- `backend/app/routers/schedules.py`
+- `backend/app/routers/schedule_routes.py`
+- `backend/app/routers/sessions.py`
+- `backend/app/routers/session_routes.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Continued the `demo3` backend router split by decomposing the learning-request/assignment flow and the class/schedule/session flow.
+- Turned `backend/app/routers/learning_requests.py` into a thin aggregate router and moved the request endpoints into `learning_request_profiles.py`.
+- Added `learning_request_router_support.py` for:
+  - student/staff list access checks
+  - student ownership enforcement on learning request creation
+  - assignment payload staff-id normalization helper
+- Turned `backend/app/routers/assignments.py` into a thin aggregate router over `assignment_routes.py`.
+- Turned `backend/app/routers/classes.py` into a thin aggregate router over:
+  - `class_profiles.py` for class CRUD/list/detail
+  - `class_finance.py` for `/classes/{id}/tuition-summary`
+- Added `class_router_support.py` to centralize repeated actor-role filtering for class-related list endpoints.
+- Turned `backend/app/routers/schedules.py` and `backend/app/routers/sessions.py` into thin aggregate routers over `schedule_routes.py` and `session_routes.py`.
+- Preserved the existing URL structure and left `backend/app/main.py` router includes unchanged.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+
+### Remaining Issues / Next Step
+
+- Rerun live HTTP smoke tests on `demo3` so the router decomposition has runtime evidence, not only compile evidence.
+- The next router split candidate is the finance pair:
+  - `invoices`
+  - `payments`
+- Keep future router batches behavior-preserving and avoid renaming public endpoints while refactoring structure.
+
+## 2026-06-15 - Live Verification After demo3 Service And Router Refactor
+
+### Changed Files
+
+- `backend/app/routers/assignments.py`
+- `backend/app/routers/classes.py`
+- `backend/app/routers/learning_requests.py`
+- `backend/app/routers/schedules.py`
+- `backend/app/routers/sessions.py`
+- `backend/app/routers/students.py`
+- `backend/app/routers/tutors.py`
+- `backend/app/routers/tutor_profiles.py`
+- `backend/app/routers/student_profiles.py`
+- `backend/app/routers/learning_request_profiles.py`
+- `backend/app/routers/assignment_routes.py`
+- `backend/app/routers/class_profiles.py`
+- `backend/app/routers/schedule_routes.py`
+- `backend/app/routers/session_routes.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Ran a real backend startup check and reran the auth-aware HTTP smoke test after the `demo3` service/router decomposition.
+- Live boot initially failed even though `compileall` passed.
+- First runtime regression:
+  - aggregate router modules used `APIRouter` before importing it
+- Second runtime regression:
+  - FastAPI rejected aggregate-router composition when child routers had empty-path operations and did not carry the resource `prefix` themselves
+- Fixed the router composition pattern so the primary per-resource route module now owns the resource `prefix` and `tags`, while aggregate files re-export that router or attach only secondary child routers with non-empty paths.
+- Confirmed backend startup succeeds again and the full HTTP smoke suite passes after those fixes.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `uv run uvicorn app.main:app --host 127.0.0.1 --port 8000`
+- `GET http://127.0.0.1:8000/health`
+- `uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-email staff1@smarttutor.local --staff-password staff123`
+
+### Remaining Issues / Next Step
+
+- The backend refactor on `demo3` is now live-verified for the main CRUD smoke path, but finance-router decomposition still remains if we want to finish the router split.
+- Add a lightweight backend startup/import smoke check to future local verification so FastAPI router composition issues are caught earlier than full endpoint tests.
+
+## 2026-06-15 - Repository Decomposition On demo3
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/repositories/repository_common.py`
+- `backend/app/repositories/account_repository.py`
+- `backend/app/repositories/student_repository.py`
+- `backend/app/repositories/tutor_repository.py`
+- `backend/app/repositories/request_repository.py`
+- `backend/app/repositories/class_repository.py`
+- `backend/app/repositories/finance_repository.py`
+- `backend/app/repositories/dashboard_repository.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Split the oversized repository module into bounded-context modules while preserving the existing repository API surface.
+- Moved shared SQL helpers, update-column allowlists, and commit helper into `repository_common.py`.
+- Extracted account/auth/staff persistence into `account_repository.py`.
+- Extracted student persistence into `student_repository.py`.
+- Extracted tutor, subject, tutor-capability, and tutor-availability persistence into `tutor_repository.py`.
+- Extracted learning-request and assignment persistence into `request_repository.py`.
+- Extracted class, schedule, session, and class-tuition aggregate persistence into `class_repository.py`.
+- Extracted invoice/payment persistence into `finance_repository.py`.
+- Extracted dashboard aggregate query into `dashboard_repository.py`.
+- Replaced the old `data_repository.py` implementation with a thin compatibility facade that re-exports all repository functions for current service imports.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `GET http://127.0.0.1:8000/health`
+- `uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-email staff1@smarttutor.local --staff-password staff123`
+
+### Remaining Issues / Next Step
+
+- The repository split is live-verified for the current smoke path, so the next useful work should focus on verification depth rather than more structural churn.
+- Add a lightweight startup/import smoke check plus a few focused negative HTTP tests to catch future compatibility regressions earlier.

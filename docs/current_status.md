@@ -210,6 +210,70 @@ uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-
   - `sql/schema.sql` executes cleanly against SQL Server when `SET ANSI_NULLS ON` and `SET QUOTED_IDENTIFIER ON` are enabled before filtered-index creation
   - `sql/sample_data.sql` seeds successfully after schema reset
   - auth-aware smoke test passes end to end after the payment procedure/view/function migration
+- Live verification after the `demo3` backend refactor now confirms:
+  - local backend startup succeeds with `uv run uvicorn app.main:app --host 127.0.0.1 --port 8000`
+  - `GET /health` returns `{"status":"ok"}`
+  - auth-aware smoke test still passes end to end after the service and router decomposition work
+- Repository-layer decomposition has now been completed on branch `demo3` and is live-verified:
+  - the previous monolithic `backend/app/repositories/data_repository.py` has been split by bounded context into:
+    - `repository_common.py`
+    - `account_repository.py`
+    - `student_repository.py`
+    - `tutor_repository.py`
+    - `request_repository.py`
+    - `class_repository.py`
+    - `finance_repository.py`
+    - `dashboard_repository.py`
+  - `data_repository.py` now acts as a compatibility facade that re-exports the existing repository surface for current services and auth code
+  - compile verification passes and the auth-aware HTTP smoke test still passes after the repository split on `demo3`
+- Backend service-layer refactor for branch `demo3` is compile-verified:
+  - the previous monolithic `backend/app/services/business_service.py` has been split by role into:
+    - `auth_service.py`
+    - `student_service.py`
+    - `tutor_service.py`
+    - `subject_service.py`
+    - `request_flow_service.py`
+    - `class_flow_service.py`
+    - `finance_service.py`
+    - `dashboard_service.py`
+    - shared helpers in `common.py`
+  - `business_service.py` now acts as a compatibility facade that re-exports the existing service surface for current routers and auth code
+  - this refactor has now been rerun through local backend startup and the auth-aware HTTP smoke test on `demo3`
+- Backend router decomposition has continued on branch `demo3` and is compile-verified:
+  - `backend/app/routers/tutors.py` now acts as a small aggregate router
+  - tutor endpoints were split into:
+    - `tutor_profiles.py`
+    - `tutor_capabilities.py`
+    - `tutor_availabilities.py`
+    - shared tutor access guard in `tutor_router_support.py`
+  - `backend/app/routers/students.py` now acts as a small aggregate router
+  - student endpoints were split into:
+    - `student_profiles.py`
+    - `student_relations.py`
+    - shared student access guard in `student_router_support.py`
+  - endpoint paths and current `main.py` router includes were preserved
+  - this router refactor has now been rerun through local backend startup and the auth-aware HTTP smoke test on `demo3`
+- Backend router decomposition has expanded further on branch `demo3` and remains compile-verified:
+  - `backend/app/routers/learning_requests.py` now acts as an aggregate router
+  - learning-request routes were split into:
+    - `learning_request_profiles.py`
+    - shared request/assignment helper logic in `learning_request_router_support.py`
+  - `backend/app/routers/assignments.py` now acts as an aggregate router
+  - assignment routes were split into:
+    - `assignment_routes.py`
+    - shared staff-id payload normalization reused from `learning_request_router_support.py`
+  - `backend/app/routers/classes.py` now acts as an aggregate router
+  - class routes were split into:
+    - `class_profiles.py`
+    - `class_finance.py`
+    - shared class/schedule/session actor-filter helpers in `class_router_support.py`
+  - `backend/app/routers/schedules.py` now acts as an aggregate router over `schedule_routes.py`
+  - `backend/app/routers/sessions.py` now acts as an aggregate router over `session_routes.py`
+  - endpoint paths and current `main.py` router includes were preserved
+  - live verification on `demo3` exposed and fixed two FastAPI bootstrap regressions that compile alone did not catch:
+    - aggregate router files had `APIRouter` used before import after the split
+    - aggregate routers cannot include child routers with empty-path operations unless the child router itself carries the resource `prefix`
+  - after fixing those bootstrap issues, local backend startup and the auth-aware HTTP smoke test both pass on `demo3`
 
 ## Verified Business Flow Status
 
@@ -317,6 +381,19 @@ powershell -ExecutionPolicy Bypass -File .\sql\reset_demo_utf8.ps1 -Seed sample
   - execute `sql/schema.sql`
   - run focused `SELECT` checks against `VW_LEARNING_REQUEST_DETAIL`, `VW_LESSON_SESSION_DETAIL`, `VW_INVOICE_DETAIL`, and `FN_CLASS_TUITION_SUMMARY`
   - rerun the auth-aware HTTP smoke test
+- if the backend decomposition continues on `demo3`, keep the next batch scoped to one layer at a time:
+  - routers by domain, or
+  - repository split by bounded context
+  - preserve the current API contract while shrinking module size
+- if router decomposition continues on `demo3`, the next safe targets are:
+  - `invoices` + `payments`
+  - shared auth/dashboard helpers only if they genuinely grow
+  - keep aggregate router files thin and avoid changing URL structure
+- if further backend cleanup continues on `demo3`, prefer non-structural follow-up work next:
+  - add startup/import smoke coverage
+  - add focused negative HTTP tests
+  - reduce duplicated SQL snippets inside the new repository modules only when covered by tests
+- add one lightweight backend startup/import smoke check to local verification so FastAPI router-bootstrap regressions are caught earlier than full HTTP testing
 - add focused negative HTTP tests for the newer procedure-backed flows:
   - assignment procedure invalid tutor capability / non-pending request
   - class procedure duplicate class / invalid assignment state
