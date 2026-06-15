@@ -586,3 +586,245 @@
 
 - Convert lesson session CRUD, status updates, and session filters to raw SQL.
 - Continue migrating invoice, payment, and dashboard paths in later steps.
+
+## 2026-06-15 - SQL Raw Repository Migration Step 8 Lesson Session CRUD And Status
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Converted lesson session list filters to parameterized raw SQL with normalized joins from `LESSON_SESSION` through class, assignment, learning request, and subject.
+- Converted session detail and create repository functions to parameterized raw SQL against `LESSON_SESSION`.
+- Added `SESSION_UPDATE_COLUMNS` for whitelisted session updates.
+- Added explicit `update_session` and `cancel_session` repository functions.
+- Updated session service update, status patch, and delete flows to call repository SQL updates instead of mutating returned session objects.
+- Preserved explicit `content_note = null` clearing for status patch payloads.
+- Updated `session_to_response` to support raw SQL flat `class_label` rows while keeping the existing relationship fallback.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "db\\.query\\(LessonSession\\)|db\\.add\\(session\\)|repo\\.apply_updates\\(session|session\\.status\\s*=|session\\.content_note\\s*=|repo\\.touch_model\\(session" backend/app`
+- `rg -n "SESSION_UPDATE_COLUMNS|def get_sessions|def get_session\\(|def create_session\\(|def update_session\\(|def cancel_session\\(|repo\\.update_session|repo\\.cancel_session|class_label" backend/app/repositories/data_repository.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Convert invoice CRUD/list/detail to raw SQL or a finance detail view.
+- Continue migrating payment and dashboard paths in later steps.
+
+## 2026-06-15 - SQL Raw Repository Migration Step 9 Invoice CRUD And Reads
+
+### Changed Files
+
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Converted invoice list/detail/class-period lookup repository functions to parameterized raw SQL with normalized joins through class, assignment, learning request, student, subject, and tutor.
+- Converted invoice create to parameterized raw SQL against `TUITION_INVOICE`.
+- Added `INVOICE_UPDATE_COLUMNS` for whitelisted invoice updates.
+- Added explicit `update_invoice` and `cancel_invoice` repository functions.
+- Added minimal invoice class/request context attachment so existing payment create validation can still compare `student_id` before the payment migration step.
+- Updated invoice service update/delete flows to call repository SQL updates instead of mutating returned invoice objects.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "db\\.query\\(TuitionInvoice\\)|db\\.add\\(invoice\\)|repo\\.apply_updates\\(invoice|invoice\\.status\\s*=|repo\\.touch_model\\(invoice" backend/app`
+- `rg -n "INVOICE_UPDATE_COLUMNS|def get_invoices|def get_invoice\\(|def create_invoice\\(|def get_invoice_by_class_period|def update_invoice\\(|def cancel_invoice\\(|repo\\.update_invoice|repo\\.cancel_invoice|_attach_invoice_context" backend/app/repositories/data_repository.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Convert payment CRUD/list/detail to raw SQL and preserve trigger-driven invoice recalculation.
+- Convert dashboard summary to raw SQL after finance paths are complete.
+
+## 2026-06-15 - SQL Raw Repository Migration Step 10 Payment SQL Objects And Dashboard Summary
+
+### Changed Files
+
+- `sql/schema.sql`
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added `VW_INVOICE_DETAIL`, `VW_PAYMENT_DETAIL`, `FN_INVOICE_REMAINING_AMOUNT`, and `SP_CREATE_TUITION_PAYMENT` to `sql/schema.sql`.
+- Converted payment list/detail reads to `VW_PAYMENT_DETAIL`.
+- Converted payment create to call `SP_CREATE_TUITION_PAYMENT`.
+- Added `PAYMENT_UPDATE_COLUMNS` plus explicit repository `update_payment` and `cancel_payment` SQL functions.
+- Updated payment service create/update/delete flows to call repository SQL updates instead of mutating returned payment objects.
+- Kept service-layer overpayment validation before payment insert, while also adding procedure-side remaining-amount protection through `FN_INVOICE_REMAINING_AMOUNT`.
+- Added minimal nested invoice attachment on payment read objects so access control and remaining-amount validation continue to work during the final cleanup stage.
+- Converted `/dashboard/summary` to a single raw SQL aggregate query.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "db\\.query\\(TuitionPayment\\)|db\\.add\\(payment\\)|repo\\.apply_updates\\(payment|payment\\.status\\s*=|repo\\.touch_model\\(payment|dashboard_summary\\(|db\\.query\\(Student\\)|db\\.query\\(Tutor\\)|db\\.query\\(LearningRequest\\)|db\\.query\\(StudyClass\\)|db\\.query\\(LessonSession\\)|db\\.query\\(TuitionInvoice\\)" backend/app`
+- `rg -n "VW_PAYMENT_DETAIL|FN_INVOICE_REMAINING_AMOUNT|SP_CREATE_TUITION_PAYMENT|PAYMENT_UPDATE_COLUMNS|def get_payments|def get_payment\\(|def create_payment\\(|def update_payment\\(|def cancel_payment\\(|def get_dashboard_summary|repo\\.update_payment|repo\\.cancel_payment" backend/app/repositories/data_repository.py backend/app/services/business_service.py sql/schema.sql`
+- `rg -n "joinedload|\\.options\\(" backend/app/repositories/data_repository.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Rerun schema reset and auth-aware smoke tests to verify the new SQL objects end to end against SQL Server.
+- Finish final cleanup for remaining `db.query`, `db.add`, `db.delete`, `db.refresh`, and `db.flush` leftovers outside the migrated flows.
+- Create `docs/database_implementation.md` and refresh `docs/completion_matrix.md` after live verification.
+
+## 2026-06-15 - SQL Raw Repository Migration Step 11 Live Verification And Final Cleanup
+
+### Changed Files
+
+- `sql/schema.sql`
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/completion_matrix.md`
+- `docs/agent_worklog.md`
+- `docs/database_implementation.md`
+
+### What Changed
+
+- Added `SET ANSI_NULLS ON` and `SET QUOTED_IDENTIFIER ON` near the top of `sql/schema.sql` so filtered indexes and other SQL Server objects recreate cleanly during schema reset.
+- Converted the remaining runtime ORM repository helpers `create_user`, `get_staff`, and `create_staff` to parameterized raw SQL.
+- Removed the unused repository helpers that still depended on ORM delete/refresh behavior.
+- Reran `sql/schema.sql` successfully against SQL Server, then reseeded with `sql/sample_data.sql`.
+- Reran the auth-aware HTTP smoke test after the payment procedure/view/function migration and confirmed end-to-end PASS, including the class-id auto-invoice payment path.
+- Updated status/docs to reflect live verification rather than compile-only coverage.
+- Added `docs/database_implementation.md` summarizing the raw SQL CRUD layer, views, trigger, function, procedure, and evidence commands.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app backend/tests/http_crud_smoke.py`
+- `rg -n "db\\.(query|add|delete|refresh|flush)" backend/app`
+- `rg -n "joinedload|\\.options\\(" backend/app`
+- `sqlcmd -b -S localhost -d master -U sa -P 123456 -C -f 65001 -i sql/schema.sql`
+- `powershell -ExecutionPolicy Bypass -File .\\sql\\reset_demo_utf8.ps1 -Seed sample`
+- `uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-email staff1@smarttutor.local --staff-password staff123`
+
+### Remaining Issues / Next Step
+
+- Add focused negative HTTP tests for the newer service-layer validation paths.
+- Verify the newer frontend screens end to end against the live backend rather than relying on build/code audit only.
+- Create missing frontend update/detail UX for assignments, sessions, invoices, and payments where backend support already exists.
+
+## 2026-06-15 - DB Object Migration Planning And Handoff Docs
+
+### Changed Files
+
+- `docs/db_object_migration_plan.md`
+- `docs/database_implementation.md`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added a dedicated implementation-ready plan for the next SQL Server object migration batch.
+- Documented the verified current inventory of custom DB objects:
+  - `VW_STUDY_CLASS_DETAIL`
+  - `VW_INVOICE_DETAIL`
+  - `VW_PAYMENT_DETAIL`
+  - `FN_INVOICE_REMAINING_AMOUNT`
+  - `SP_CREATE_TUITION_PAYMENT`
+  - `TRG_TUITION_PAYMENT_RECALC_INVOICE`
+- Defined the target new objects and their intended purpose:
+  - `SP_ASSIGN_TUTOR_TO_REQUEST`
+  - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+  - `SP_CREATE_INVOICE_FOR_PERIOD`
+  - `VW_LEARNING_REQUEST_DETAIL`
+  - `VW_LESSON_SESSION_DETAIL`
+  - `FN_CLASS_TUITION_SUMMARY`
+- Recorded the transaction boundaries, backend endpoint impact, script management approach, and delivery phases so a new chat can continue directly from the plan.
+- Linked the current-status and database-implementation docs to the new migration-plan document.
+
+### Validation Performed
+
+- Reviewed `AGENTS.md`, `docs/current_status.md`, `docs/database_implementation.md`, and `docs/completion_matrix.md`.
+- Reviewed the existing worklog to keep the new plan aligned with the already verified raw-SQL migration state.
+- No application code or SQL runtime behavior was changed in this documentation batch.
+
+### Remaining Issues / Next Step
+
+- Lock the invoice snapshot calculation rule before implementing `SP_CREATE_INVOICE_FOR_PERIOD`.
+- Start implementation with Phase 1 from `docs/db_object_migration_plan.md`.
+
+## 2026-06-15 - DB Object Migration Phase 1 Implementation
+
+### Changed Files
+
+- `sql/schema.sql`
+- `backend/app/repositories/data_repository.py`
+- `docs/current_status.md`
+- `docs/database_implementation.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added `VW_LEARNING_REQUEST_DETAIL` to `sql/schema.sql` as the normalized learning-request read model.
+- Added `VW_LESSON_SESSION_DETAIL` to `sql/schema.sql` as the normalized lesson-session read model.
+- Added `FN_CLASS_TUITION_SUMMARY` to `sql/schema.sql` for realtime class tuition totals and invoice counters.
+- Extended the schema reset section to drop the new Phase 1 views/function on clean reruns.
+- Switched learning request list/detail repository reads to `VW_LEARNING_REQUEST_DETAIL`.
+- Switched lesson session list/detail repository reads to `VW_LESSON_SESSION_DETAIL`.
+- Switched `/classes/{id}/tuition-summary` repository reads to `FN_CLASS_TUITION_SUMMARY`.
+- Standardized invoice list/detail/class-period repository reads on `VW_INVOICE_DETAIL` instead of repeating inline normalized join SQL.
+- Preserved current response compatibility by keeping the learning-request nested `student`/`subject` mapping and by attaching one assignment context to each request row when the view returns it.
+- Updated status and implementation docs to record that Phase 1 is implemented and compile-verified.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `rg -n "VW_LEARNING_REQUEST_DETAIL|VW_LESSON_SESSION_DETAIL|FN_CLASS_TUITION_SUMMARY|VW_INVOICE_DETAIL" backend/app/repositories/data_repository.py sql/schema.sql`
+
+### Remaining Issues / Next Step
+
+- Run direct SQL Server validation for the new views/function by rerunning `sql/schema.sql` and checking the objects with `SELECT`.
+- Rerun the auth-aware HTTP smoke test so the Phase 1 read-model/function migration has live endpoint evidence, not only compile verification.
+- Continue with DB object migration Phase 2: `SP_ASSIGN_TUTOR_TO_REQUEST`.
+
+## 2026-06-15 - DB Object Migration Phase 2 Assignment Procedure
+
+### Changed Files
+
+- `sql/schema.sql`
+- `backend/app/repositories/data_repository.py`
+- `backend/app/services/business_service.py`
+- `docs/current_status.md`
+- `docs/database_implementation.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added `SP_ASSIGN_TUTOR_TO_REQUEST` to `sql/schema.sql`.
+- The procedure now:
+  - locks and checks the target learning request
+  - rejects missing, canceled, or non-`PENDING` requests
+  - rejects duplicate active assignments
+  - rejects non-`ACTIVE` tutors
+  - rejects tutors without capability for the request subject
+  - inserts `TUTOR_ASSIGNMENT`
+  - updates `LEARNING_REQUEST.status` to `ASSIGNED`
+  - returns the created assignment row
+- Added repository helper `call_assign_tutor_to_request(...)` to execute the procedure.
+- Updated `business_service.create_assignment()` to keep API-facing validation/authorization but delegate the transactional write path to `SP_ASSIGN_TUTOR_TO_REQUEST`.
+- Left assignment update/cancel flows on the existing explicit SQL path for this phase to avoid unrelated scope expansion.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- `rg -n "SP_ASSIGN_TUTOR_TO_REQUEST|call_assign_tutor_to_request|def create_assignment\\(" sql/schema.sql backend/app/repositories/data_repository.py backend/app/services/business_service.py`
+
+### Remaining Issues / Next Step
+
+- Run direct SQL Server validation for `SP_ASSIGN_TUTOR_TO_REQUEST` with valid and invalid `EXEC` cases.
+- Rerun the auth-aware HTTP smoke test so the assignment procedure migration has live endpoint evidence.
+- Continue with DB object migration Phase 3: `SP_CREATE_CLASS_FROM_ASSIGNMENT`.

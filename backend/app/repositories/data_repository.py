@@ -2,8 +2,8 @@ from datetime import date, datetime
 from types import SimpleNamespace
 from typing import Iterable, Optional
 
-from sqlalchemy import String, cast, or_, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.models import (
     ClassSchedule,
@@ -102,6 +102,32 @@ SCHEDULE_UPDATE_COLUMNS = {
     "status",
     "note",
 }
+SESSION_UPDATE_COLUMNS = {
+    "schedule_id",
+    "session_number",
+    "lesson_date",
+    "start_time",
+    "end_time",
+    "status",
+    "content_note",
+}
+INVOICE_UPDATE_COLUMNS = {
+    "period_start",
+    "period_end",
+    "completed_sessions",
+    "tuition_fee_per_session",
+    "amount_due",
+    "amount_paid",
+    "status",
+}
+PAYMENT_UPDATE_COLUMNS = {
+    "staff_id",
+    "payment_date",
+    "amount_paid",
+    "payment_method",
+    "note",
+    "status",
+}
 
 
 def touch_model(model):
@@ -160,13 +186,55 @@ def get_user_by_id(db: Session, account_id: int) -> Optional[UserAccount]:
 
 
 def create_user(db: Session, user: UserAccount) -> UserAccount:
-    db.add(user)
-    db.flush()
-    return user
+    row = db.execute(
+        text(
+            """
+            INSERT INTO USER_ACCOUNT (
+                email,
+                username,
+                password_hash,
+                role,
+                status
+            )
+            OUTPUT
+                INSERTED.account_id,
+                INSERTED.email,
+                INSERTED.username,
+                INSERTED.password_hash,
+                INSERTED.role,
+                INSERTED.status,
+                INSERTED.created_at,
+                INSERTED.updated_at
+            VALUES (
+                :email,
+                :username,
+                :password_hash,
+                :role,
+                :status
+            )
+            """
+        ),
+        {
+            "email": user.email,
+            "username": user.username,
+            "password_hash": user.password_hash,
+            "role": user.role,
+            "status": user.status,
+        },
+    ).mappings().first()
+    return to_obj(row)
 
 
 def get_staff(db: Session, staff_id: int) -> Optional[Staff]:
-    return db.query(Staff).filter(Staff.staff_id == staff_id).first()
+    return fetch_one(
+        db,
+        """
+        SELECT staff_id, account_id, full_name, phone, contact_email, position, status, created_at, updated_at
+        FROM STAFF
+        WHERE staff_id = :staff_id
+        """,
+        {"staff_id": staff_id},
+    )
 
 
 def get_staff_by_account_id(db: Session, account_id: int) -> Optional[Staff]:
@@ -182,9 +250,47 @@ def get_staff_by_account_id(db: Session, account_id: int) -> Optional[Staff]:
 
 
 def create_staff(db: Session, staff: Staff) -> Staff:
-    db.add(staff)
-    db.flush()
-    return staff
+    row = db.execute(
+        text(
+            """
+            INSERT INTO STAFF (
+                account_id,
+                full_name,
+                phone,
+                contact_email,
+                position,
+                status
+            )
+            OUTPUT
+                INSERTED.staff_id,
+                INSERTED.account_id,
+                INSERTED.full_name,
+                INSERTED.phone,
+                INSERTED.contact_email,
+                INSERTED.position,
+                INSERTED.status,
+                INSERTED.created_at,
+                INSERTED.updated_at
+            VALUES (
+                :account_id,
+                :full_name,
+                :phone,
+                :contact_email,
+                :position,
+                :status
+            )
+            """
+        ),
+        {
+            "account_id": staff.account_id,
+            "full_name": staff.full_name,
+            "phone": staff.phone,
+            "contact_email": staff.contact_email,
+            "position": staff.position,
+            "status": staff.status,
+        },
+    ).mappings().first()
+    return to_obj(row)
 
 
 def get_students(
@@ -951,6 +1057,20 @@ def _attach_learning_request_detail(request):
             grade_level=getattr(request, "subject_grade_level", None),
             subject_group=getattr(request, "subject_group", None),
         )
+        if getattr(request, "assignment_id", None) is not None:
+            request.assignment = SimpleNamespace(
+                assignment_id=request.assignment_id,
+                status=getattr(request, "assignment_status", None),
+                assigned_at=getattr(request, "assignment_assigned_at", None),
+                note=getattr(request, "assignment_note", None),
+                staff_id=getattr(request, "assignment_staff_id", None),
+                tutor_id=getattr(request, "assignment_tutor_id", None),
+                class_id=getattr(request, "class_id", None),
+                staff_name=getattr(request, "assignment_staff_name", None),
+                tutor_name=getattr(request, "assigned_tutor_name", None),
+            )
+        else:
+            request.assignment = None
     return request
 
 
@@ -970,33 +1090,13 @@ def get_learning_requests(
     requests = fetch_all(
         db,
         """
-        SELECT
-            lr.request_id,
-            lr.student_id,
-            st.full_name AS student_name,
-            st.phone AS student_phone,
-            st.contact_email AS student_email,
-            lr.subject_id,
-            su.subject_name,
-            su.grade_level AS subject_grade_level,
-            su.subject_group,
-            lr.requested_level,
-            lr.learning_goal,
-            lr.preferred_area,
-            lr.preferred_mode,
-            lr.preferred_schedule,
-            lr.expected_fee,
-            lr.status,
-            lr.created_at,
-            lr.updated_at
-        FROM LEARNING_REQUEST lr
-        JOIN STUDENT st ON st.student_id = lr.student_id
-        JOIN SUBJECT su ON su.subject_id = lr.subject_id
-        WHERE (:student_id IS NULL OR lr.student_id = :student_id)
-          AND (:subject_id IS NULL OR lr.subject_id = :subject_id)
-          AND (:status IS NULL OR lr.status = :status)
-          AND (:subject IS NULL OR su.subject_name LIKE :subject)
-        ORDER BY lr.request_id DESC
+        SELECT *
+        FROM VW_LEARNING_REQUEST_DETAIL
+        WHERE (:student_id IS NULL OR student_id = :student_id)
+          AND (:subject_id IS NULL OR subject_id = :subject_id)
+          AND (:status IS NULL OR status = :status)
+          AND (:subject IS NULL OR subject_name LIKE :subject)
+        ORDER BY request_id DESC
         """,
         {
             "student_id": student_id,
@@ -1013,29 +1113,9 @@ def get_learning_request(db: Session, request_id: int) -> Optional[LearningReque
         fetch_one(
             db,
             """
-            SELECT
-                lr.request_id,
-                lr.student_id,
-                st.full_name AS student_name,
-                st.phone AS student_phone,
-                st.contact_email AS student_email,
-                lr.subject_id,
-                su.subject_name,
-                su.grade_level AS subject_grade_level,
-                su.subject_group,
-                lr.requested_level,
-                lr.learning_goal,
-                lr.preferred_area,
-                lr.preferred_mode,
-                lr.preferred_schedule,
-                lr.expected_fee,
-                lr.status,
-                lr.created_at,
-                lr.updated_at
-            FROM LEARNING_REQUEST lr
-            JOIN STUDENT st ON st.student_id = lr.student_id
-            JOIN SUBJECT su ON su.subject_id = lr.subject_id
-            WHERE lr.request_id = :request_id
+            SELECT *
+            FROM VW_LEARNING_REQUEST_DETAIL
+            WHERE request_id = :request_id
             """,
             {"request_id": request_id},
         )
@@ -1212,6 +1292,35 @@ def create_assignment(db: Session, assignment: TutorAssignment) -> TutorAssignme
             "staff_id": assignment.staff_id,
             "status": assignment.status,
             "note": assignment.note,
+        },
+    ).mappings().first()
+    created = to_obj(row)
+    created.study_class = None
+    return created
+
+
+def call_assign_tutor_to_request(
+    db: Session,
+    request_id: int,
+    tutor_id: int,
+    staff_id: Optional[int] = None,
+    note: Optional[str] = None,
+) -> TutorAssignment:
+    row = db.execute(
+        text(
+            """
+            EXEC SP_ASSIGN_TUTOR_TO_REQUEST
+                @request_id = :request_id,
+                @tutor_id = :tutor_id,
+                @staff_id = :staff_id,
+                @note = :note
+            """
+        ),
+        {
+            "request_id": request_id,
+            "tutor_id": tutor_id,
+            "staff_id": staff_id,
+            "note": note,
         },
     ).mappings().first()
     created = to_obj(row)
@@ -1479,35 +1588,8 @@ def get_class_tuition_summary(db: Session, class_id: int):
     return fetch_one(
         db,
         """
-        WITH completed AS (
-            SELECT
-                class_id,
-                COUNT(*) AS completed_sessions
-            FROM LESSON_SESSION
-            WHERE class_id = :class_id
-              AND status = 'COMPLETED'
-            GROUP BY class_id
-        ),
-        paid AS (
-            SELECT
-                ti.class_id,
-                COALESCE(SUM(CASE WHEN tp.status = 'SUCCESS' THEN tp.amount_paid ELSE 0 END), 0) AS paid_amount
-            FROM TUITION_INVOICE ti
-            LEFT JOIN TUITION_PAYMENT tp ON tp.invoice_id = ti.invoice_id
-            WHERE ti.class_id = :class_id
-            GROUP BY ti.class_id
-        )
-        SELECT
-            sc.class_id,
-            COALESCE(c.completed_sessions, 0) AS completed_sessions,
-            sc.tuition_fee_per_session,
-            COALESCE(c.completed_sessions, 0) * sc.tuition_fee_per_session AS total_fee,
-            COALESCE(p.paid_amount, 0) AS paid_amount,
-            (COALESCE(c.completed_sessions, 0) * sc.tuition_fee_per_session) - COALESCE(p.paid_amount, 0) AS remaining_amount
-        FROM STUDY_CLASS sc
-        LEFT JOIN completed c ON c.class_id = sc.class_id
-        LEFT JOIN paid p ON p.class_id = sc.class_id
-        WHERE sc.class_id = :class_id
+        SELECT *
+        FROM dbo.FN_CLASS_TUITION_SUMMARY(:class_id)
         """,
         {"class_id": class_id},
     )
@@ -1638,28 +1720,143 @@ def get_sessions(
     status: Optional[str] = None,
     lesson_date: Optional[date] = None,
 ) -> list[LessonSession]:
-    query = db.query(LessonSession).join(StudyClass).join(TutorAssignment).join(LearningRequest)
-    if class_id:
-        query = query.filter(LessonSession.class_id == class_id)
-    if tutor_id:
-        query = query.filter(TutorAssignment.tutor_id == tutor_id)
-    if student_id:
-        query = query.filter(LearningRequest.student_id == student_id)
-    if status:
-        query = query.filter(LessonSession.status == status)
-    if lesson_date:
-        query = query.filter(LessonSession.lesson_date == lesson_date)
-    return query.order_by(LessonSession.lesson_date.desc(), LessonSession.session_id.desc()).all()
+    return fetch_all(
+        db,
+        """
+        SELECT *
+        FROM VW_LESSON_SESSION_DETAIL
+        WHERE (:class_id IS NULL OR class_id = :class_id)
+          AND (:tutor_id IS NULL OR tutor_id = :tutor_id)
+          AND (:student_id IS NULL OR student_id = :student_id)
+          AND (:status IS NULL OR status = :status)
+          AND (:lesson_date IS NULL OR lesson_date = :lesson_date)
+        ORDER BY lesson_date DESC, session_id DESC
+        """,
+        {
+            "class_id": class_id,
+            "tutor_id": tutor_id,
+            "student_id": student_id,
+            "status": status,
+            "lesson_date": lesson_date,
+        },
+    )
 
 
 def get_session(db: Session, session_id: int) -> Optional[LessonSession]:
-    return db.query(LessonSession).filter(LessonSession.session_id == session_id).first()
+    return fetch_one(
+        db,
+        """
+        SELECT *
+        FROM VW_LESSON_SESSION_DETAIL
+        WHERE session_id = :session_id
+        """,
+        {"session_id": session_id},
+    )
 
 
 def create_session(db: Session, session: LessonSession) -> LessonSession:
-    db.add(session)
-    db.flush()
-    return session
+    row = db.execute(
+        text(
+            """
+            INSERT INTO LESSON_SESSION (
+                class_id,
+                schedule_id,
+                session_number,
+                lesson_date,
+                start_time,
+                end_time,
+                status,
+                content_note
+            )
+            OUTPUT
+                INSERTED.session_id,
+                INSERTED.class_id,
+                INSERTED.schedule_id,
+                INSERTED.session_number,
+                INSERTED.lesson_date,
+                INSERTED.start_time,
+                INSERTED.end_time,
+                INSERTED.status,
+                INSERTED.content_note,
+                INSERTED.created_at,
+                INSERTED.updated_at
+            VALUES (
+                :class_id,
+                :schedule_id,
+                :session_number,
+                :lesson_date,
+                :start_time,
+                :end_time,
+                :status,
+                :content_note
+            )
+            """
+        ),
+        {
+            "class_id": session.class_id,
+            "schedule_id": session.schedule_id,
+            "session_number": session.session_number,
+            "lesson_date": session.lesson_date,
+            "start_time": session.start_time,
+            "end_time": session.end_time,
+            "status": session.status,
+            "content_note": session.content_note,
+        },
+    ).mappings().first()
+    return to_obj(row)
+
+
+def update_session(db: Session, session_id: int, data: dict) -> None:
+    update_by_id(db, "LESSON_SESSION", "session_id", session_id, data, SESSION_UPDATE_COLUMNS)
+
+
+def cancel_session(db: Session, session_id: int) -> None:
+    update_session(db, session_id, {"status": "CANCELED"})
+
+
+def _get_invoice_class_context(db: Session, class_id: int):
+    return fetch_one(
+        db,
+        """
+        SELECT
+            sc.class_id,
+            sc.class_code,
+            lr.student_id,
+            st.full_name AS student_name,
+            su.subject_id,
+            su.subject_name,
+            su.grade_level AS subject_grade_level,
+            ta.tutor_id,
+            tu.full_name AS tutor_name
+        FROM STUDY_CLASS sc
+        JOIN TUTOR_ASSIGNMENT ta ON ta.assignment_id = sc.assignment_id
+        JOIN LEARNING_REQUEST lr ON lr.request_id = ta.request_id
+        JOIN STUDENT st ON st.student_id = lr.student_id
+        JOIN SUBJECT su ON su.subject_id = lr.subject_id
+        JOIN TUTOR tu ON tu.tutor_id = ta.tutor_id
+        WHERE sc.class_id = :class_id
+        """,
+        {"class_id": class_id},
+    )
+
+
+def _attach_invoice_context(invoice, db: Optional[Session] = None):
+    if invoice is None:
+        return None
+    context = invoice
+    if not hasattr(invoice, "student_id") and db is not None:
+        context = _get_invoice_class_context(db, invoice.class_id) or invoice
+        for key, value in vars(context).items():
+            setattr(invoice, key, value)
+    learning_request = SimpleNamespace(student_id=getattr(invoice, "student_id", None))
+    assignment = SimpleNamespace(learning_request=learning_request)
+    invoice.study_class = SimpleNamespace(
+        class_id=invoice.class_id,
+        class_code=getattr(invoice, "class_code", None),
+        assignment=assignment,
+    )
+    invoice.payments = []
+    return invoice
 
 
 def get_invoices(
@@ -1669,36 +1866,95 @@ def get_invoices(
     status: Optional[str] = None,
     period_filter: Optional[str] = None,
 ) -> list[TuitionInvoice]:
-    query = db.query(TuitionInvoice).options(joinedload(TuitionInvoice.study_class)).join(StudyClass).join(TutorAssignment).join(LearningRequest)
-    if class_id:
-        query = query.filter(TuitionInvoice.class_id == class_id)
-    if student_id:
-        query = query.filter(LearningRequest.student_id == student_id)
-    if status:
-        query = query.filter(TuitionInvoice.status == status)
-    if period_filter:
-        query = query.filter(
-            or_(
-                cast(TuitionInvoice.period_start, String).ilike(f"%{period_filter}%"),
-                cast(TuitionInvoice.period_end, String).ilike(f"%{period_filter}%"),
-            )
-        )
-    return query.order_by(TuitionInvoice.invoice_id.desc()).all()
+    invoices = fetch_all(
+        db,
+        """
+        SELECT *
+        FROM VW_INVOICE_DETAIL
+        WHERE (:class_id IS NULL OR class_id = :class_id)
+          AND (:student_id IS NULL OR student_id = :student_id)
+          AND (:status IS NULL OR status = :status)
+          AND (
+              :period_filter IS NULL
+              OR CONVERT(VARCHAR(10), period_start, 23) LIKE :period_filter
+              OR CONVERT(VARCHAR(10), period_end, 23) LIKE :period_filter
+          )
+        ORDER BY invoice_id DESC
+        """,
+        {
+            "class_id": class_id,
+            "student_id": student_id,
+            "status": status,
+            "period_filter": f"%{period_filter}%" if period_filter else None,
+        },
+    )
+    return [_attach_invoice_context(invoice) for invoice in invoices]
 
 
 def get_invoice(db: Session, invoice_id: int) -> Optional[TuitionInvoice]:
-    return (
-        db.query(TuitionInvoice)
-        .options(joinedload(TuitionInvoice.study_class), joinedload(TuitionInvoice.payments))
-        .filter(TuitionInvoice.invoice_id == invoice_id)
-        .first()
+    return _attach_invoice_context(
+        fetch_one(
+            db,
+            """
+            SELECT *
+            FROM VW_INVOICE_DETAIL
+            WHERE invoice_id = :invoice_id
+            """,
+            {"invoice_id": invoice_id},
+        )
     )
 
 
 def create_invoice(db: Session, invoice: TuitionInvoice) -> TuitionInvoice:
-    db.add(invoice)
-    db.flush()
-    return invoice
+    row = db.execute(
+        text(
+            """
+            INSERT INTO TUITION_INVOICE (
+                class_id,
+                period_start,
+                period_end,
+                completed_sessions,
+                tuition_fee_per_session,
+                amount_due,
+                amount_paid,
+                status
+            )
+            OUTPUT
+                INSERTED.invoice_id,
+                INSERTED.class_id,
+                INSERTED.period_start,
+                INSERTED.period_end,
+                INSERTED.completed_sessions,
+                INSERTED.tuition_fee_per_session,
+                INSERTED.amount_due,
+                INSERTED.amount_paid,
+                INSERTED.status,
+                INSERTED.created_at,
+                INSERTED.updated_at
+            VALUES (
+                :class_id,
+                :period_start,
+                :period_end,
+                :completed_sessions,
+                :tuition_fee_per_session,
+                :amount_due,
+                :amount_paid,
+                :status
+            )
+            """
+        ),
+        {
+            "class_id": invoice.class_id,
+            "period_start": invoice.period_start,
+            "period_end": invoice.period_end,
+            "completed_sessions": invoice.completed_sessions,
+            "tuition_fee_per_session": invoice.tuition_fee_per_session,
+            "amount_due": invoice.amount_due,
+            "amount_paid": invoice.amount_paid,
+            "status": invoice.status,
+        },
+    ).mappings().first()
+    return _attach_invoice_context(to_obj(row), db)
 
 
 def get_invoice_by_class_period(
@@ -1707,16 +1963,42 @@ def get_invoice_by_class_period(
     period_start: date,
     period_end: date,
 ) -> Optional[TuitionInvoice]:
-    return (
-        db.query(TuitionInvoice)
-        .options(joinedload(TuitionInvoice.study_class), joinedload(TuitionInvoice.payments))
-        .filter(
-            TuitionInvoice.class_id == class_id,
-            TuitionInvoice.period_start == period_start,
-            TuitionInvoice.period_end == period_end,
+    return _attach_invoice_context(
+        fetch_one(
+            db,
+            """
+            SELECT *
+            FROM VW_INVOICE_DETAIL
+            WHERE class_id = :class_id
+              AND period_start = :period_start
+              AND period_end = :period_end
+            """,
+            {"class_id": class_id, "period_start": period_start, "period_end": period_end},
         )
-        .first()
     )
+
+
+def update_invoice(db: Session, invoice_id: int, data: dict) -> None:
+    update_by_id(db, "TUITION_INVOICE", "invoice_id", invoice_id, data, INVOICE_UPDATE_COLUMNS)
+
+
+def cancel_invoice(db: Session, invoice_id: int) -> None:
+    update_invoice(db, invoice_id, {"status": "CANCELED"})
+
+
+def _attach_payment_context(payment):
+    if payment is None:
+        return None
+    payment.invoice = SimpleNamespace(
+        invoice_id=payment.invoice_id,
+        class_id=getattr(payment, "class_id", None),
+        period_start=getattr(payment, "period_start", None),
+        period_end=getattr(payment, "period_end", None),
+        amount_due=getattr(payment, "amount_due", None),
+        amount_paid=getattr(payment, "invoice_amount_paid", None),
+        status=getattr(payment, "invoice_status", None),
+    )
+    return payment
 
 
 def get_payments(
@@ -1727,77 +2009,156 @@ def get_payments(
     invoice_status: Optional[str] = None,
     period_filter: Optional[str] = None,
 ) -> list[TuitionPayment]:
-    query = (
-        db.query(TuitionPayment)
-        .options(
-            joinedload(TuitionPayment.invoice)
-            .joinedload(TuitionInvoice.study_class)
-            .joinedload(StudyClass.assignment)
-            .joinedload(TutorAssignment.learning_request)
-            .joinedload(LearningRequest.subject),
-            joinedload(TuitionPayment.invoice)
-            .joinedload(TuitionInvoice.study_class)
-            .joinedload(StudyClass.assignment)
-            .joinedload(TutorAssignment.learning_request)
-            .joinedload(LearningRequest.student),
-        )
-        .join(TuitionInvoice)
-        .join(StudyClass)
-        .join(TutorAssignment)
-        .join(LearningRequest)
+    payments = fetch_all(
+        db,
+        """
+        SELECT
+            payment_id,
+            invoice_id,
+            class_id,
+            class_code,
+            student_id,
+            student_name,
+            subject_id,
+            subject_name,
+            subject_grade_level,
+            staff_id,
+            staff_name,
+            payment_date,
+            amount_paid,
+            payment_method,
+            note,
+            payment_status AS status,
+            payment_created_at AS created_at,
+            payment_updated_at AS updated_at,
+            period_start,
+            period_end,
+            amount_due,
+            invoice_amount_paid,
+            invoice_status
+        FROM VW_PAYMENT_DETAIL
+        WHERE (:class_id IS NULL OR class_id = :class_id)
+          AND (:student_id IS NULL OR student_id = :student_id)
+          AND (:status IS NULL OR payment_status = :status)
+          AND (:invoice_status IS NULL OR invoice_status = :invoice_status)
+          AND (
+              :period_filter IS NULL
+              OR CONVERT(VARCHAR(10), period_start, 23) LIKE :period_filter
+              OR CONVERT(VARCHAR(10), period_end, 23) LIKE :period_filter
+          )
+        ORDER BY payment_id DESC
+        """,
+        {
+            "class_id": class_id,
+            "student_id": student_id,
+            "status": status,
+            "invoice_status": invoice_status,
+            "period_filter": f"%{period_filter}%" if period_filter else None,
+        },
     )
-    if class_id:
-        query = query.filter(TuitionInvoice.class_id == class_id)
-    if student_id:
-        query = query.filter(LearningRequest.student_id == student_id)
-    if status:
-        query = query.filter(TuitionPayment.status == status)
-    if invoice_status:
-        query = query.filter(TuitionInvoice.status == invoice_status)
-    if period_filter:
-        query = query.filter(
-            or_(
-                cast(TuitionInvoice.period_start, String).ilike(f"%{period_filter}%"),
-                cast(TuitionInvoice.period_end, String).ilike(f"%{period_filter}%"),
-            )
-        )
-    return query.order_by(TuitionPayment.payment_id.desc()).all()
+    return [_attach_payment_context(payment) for payment in payments]
 
 
 def get_payment(db: Session, payment_id: int) -> Optional[TuitionPayment]:
-    return (
-        db.query(TuitionPayment)
-        .options(
-            joinedload(TuitionPayment.invoice)
-            .joinedload(TuitionInvoice.study_class)
-            .joinedload(StudyClass.assignment)
-            .joinedload(TutorAssignment.learning_request)
-            .joinedload(LearningRequest.subject),
-            joinedload(TuitionPayment.invoice)
-            .joinedload(TuitionInvoice.study_class)
-            .joinedload(StudyClass.assignment)
-            .joinedload(TutorAssignment.learning_request)
-            .joinedload(LearningRequest.student),
+    return _attach_payment_context(
+        fetch_one(
+            db,
+            """
+            SELECT
+                payment_id,
+                invoice_id,
+                class_id,
+                class_code,
+                student_id,
+                student_name,
+                subject_id,
+                subject_name,
+                subject_grade_level,
+                staff_id,
+                staff_name,
+                payment_date,
+                amount_paid,
+                payment_method,
+                note,
+                payment_status AS status,
+                payment_created_at AS created_at,
+                payment_updated_at AS updated_at,
+                period_start,
+                period_end,
+                amount_due,
+                invoice_amount_paid,
+                invoice_status
+            FROM VW_PAYMENT_DETAIL
+            WHERE payment_id = :payment_id
+            """,
+            {"payment_id": payment_id},
         )
-        .filter(TuitionPayment.payment_id == payment_id)
-        .first()
     )
 
 
-def create_payment(db: Session, payment: TuitionPayment) -> TuitionPayment:
-    db.add(payment)
-    db.flush()
-    return payment
+def create_payment(
+    db: Session,
+    payment: TuitionPayment,
+    class_id: Optional[int] = None,
+    period_start: Optional[date] = None,
+    period_end: Optional[date] = None,
+) -> TuitionPayment:
+    row = db.execute(
+        text(
+            """
+            EXEC SP_CREATE_TUITION_PAYMENT
+                @invoice_id = :invoice_id,
+                @class_id = :class_id,
+                @period_start = :period_start,
+                @period_end = :period_end,
+                @amount_paid = :amount_paid,
+                @payment_method = :payment_method,
+                @payment_date = :payment_date,
+                @staff_id = :staff_id,
+                @note = :note,
+                @status = :status
+            """
+        ),
+        {
+            "invoice_id": payment.invoice_id,
+            "class_id": class_id,
+            "period_start": period_start,
+            "period_end": period_end,
+            "amount_paid": payment.amount_paid,
+            "payment_method": payment.payment_method,
+            "payment_date": payment.payment_date,
+            "staff_id": payment.staff_id,
+            "note": payment.note,
+            "status": payment.status,
+        },
+    ).mappings().first()
+    return get_payment(db, row["payment_id"]) if row else None
 
 
-def delete_model(db: Session, model) -> None:
-    db.delete(model)
+def update_payment(db: Session, payment_id: int, data: dict) -> None:
+    update_by_id(db, "TUITION_PAYMENT", "payment_id", payment_id, data, PAYMENT_UPDATE_COLUMNS)
+
+
+def cancel_payment(db: Session, payment_id: int) -> None:
+    update_payment(db, payment_id, {"status": "CANCELED"})
+
+
+def get_dashboard_summary(db: Session):
+    return fetch_one(
+        db,
+        """
+        SELECT
+            (SELECT COUNT(*) FROM STUDENT) AS total_students,
+            (SELECT COUNT(*) FROM TUTOR) AS total_tutors,
+            (SELECT COUNT(*) FROM LEARNING_REQUEST WHERE status = 'PENDING') AS pending_learning_requests,
+            (SELECT COUNT(*) FROM STUDY_CLASS WHERE status = 'ACTIVE') AS active_classes,
+            (SELECT COUNT(*) FROM LESSON_SESSION WHERE status = 'COMPLETED') AS completed_sessions,
+            (SELECT COUNT(*) FROM TUITION_INVOICE WHERE status = 'UNPAID') AS unpaid_invoices,
+            (SELECT COUNT(*) FROM TUITION_INVOICE WHERE status = 'PARTIALLY_PAID') AS partially_paid_invoices,
+            (SELECT COUNT(*) FROM TUITION_PAYMENT WHERE status = 'SUCCESS') AS successful_payments
+        """
+    )
 
 
 def commit(db: Session):
     db.commit()
-
-
-def refresh(db: Session, model):
-    db.refresh(model)
-    return model

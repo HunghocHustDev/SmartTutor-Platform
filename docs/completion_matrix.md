@@ -1,6 +1,6 @@
 # SmartTutor Platform - Completion Matrix
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 This matrix is based on:
 
@@ -8,7 +8,7 @@ This matrix is based on:
 - direct code audit of `backend/app/*` and `frontend/src/*`
 - backend compile check with `uv run python -m compileall backend/app`
 - frontend build check with `npm run build`
-- SQL Server-backed local backend runtime on 2026-06-14
+- SQL Server-backed local backend runtime on 2026-06-15
 
 ## Backend CRUD Coverage
 
@@ -25,7 +25,7 @@ This matrix is based on:
 | `CLASS_SCHEDULE` | `POST /schedules` | `GET /schedules` | `GET /schedules/{id}` | `PUT /schedules/{id}` | `DELETE /schedules/{id}` | PASS | HTTP-tested. Delete is soft deactivate to `INACTIVE`. |
 | `LESSON_SESSION` | `POST /sessions` | `GET /sessions` | `GET /sessions/{id}` | `PUT /sessions/{id}`, `PATCH /sessions/{id}/status` | `DELETE /sessions/{id}` | PASS | HTTP-tested. `PATCH` to `COMPLETED` verified. Delete is soft cancel to `CANCELED`. |
 | `TUITION_INVOICE` | `POST /invoices` | `GET /invoices` | `GET /invoices/{id}` | `PUT /invoices/{id}` | `DELETE /invoices/{id}` | PASS | HTTP-tested. Delete is soft cancel to `CANCELED`; duplicate period snapshot still returns `409`. |
-| `TUITION_PAYMENT` | `POST /payments` | `GET /payments` | `GET /payments/{id}` | `PUT /payments/{id}` | `DELETE /payments/{id}` | PASS | HTTP-tested for invoice-based payment. Smoke script now also covers class-id payment auto-invoice branch; pending live rerun. Delete is soft cancel to `CANCELED`; overpayment still returns clean `400`. |
+| `TUITION_PAYMENT` | `POST /payments` | `GET /payments` | `GET /payments/{id}` | `PUT /payments/{id}` | `DELETE /payments/{id}` | PASS | HTTP-tested for both invoice-based payment and class-id auto-invoice payment. Delete is soft cancel to `CANCELED`; overpayment still returns clean `400`. |
 
 ## Backend Business Flow Coverage
 
@@ -41,7 +41,7 @@ This matrix is based on:
 | Create invoice | PASS | HTTP smoke test created invoice `6` | Real API flow passed. |
 | Create payment | PASS | HTTP smoke test created payment `4` | Uses SQL Server trigger-safe insert behavior. |
 | Reject overpayment with `400` | PASS | Earlier payment smoke test returned `400 Payment amount exceeds invoice remaining amount` | Enforced in service logic before insert/update. |
-| Create payment by `class_id` and auto-create invoice | PARTIAL | Smoke script now includes this path, compile passes | Needs live rerun against SQL Server to verify trigger-updated invoice status in response. |
+| Create payment by `class_id` and auto-create invoice | PASS | HTTP smoke test passed after schema reset and sample reseed on 2026-06-15 | Verified with `SP_CREATE_TUITION_PAYMENT`, `VW_PAYMENT_DETAIL`, and trigger-driven invoice recalculation on SQL Server. |
 | Class list returns student/tutor/subject | PASS | HTTP smoke test verified created class payload contained all three display fields | Data resolved through normalized joins, not direct class FK columns. |
 
 ## Frontend Screen Coverage
@@ -72,12 +72,14 @@ This matrix is based on:
 | Realtime tuition summary query | PASS | Included as Query 4. |
 | Invoice/payment report query | PASS | Included as Query 5. |
 | Revenue by month query | PASS | Included as Query 6. |
+| `sql/schema.sql` finance SQL objects | PASS | `VW_INVOICE_DETAIL`, `VW_PAYMENT_DETAIL`, `FN_INVOICE_REMAINING_AMOUNT`, and `SP_CREATE_TUITION_PAYMENT` were executed successfully during live schema reset on 2026-06-15. |
 
 ## Exact Gaps Remaining
 
 | Area | Status | Exact Gap |
 | --- | --- | --- |
 | Backend canonical CRUD parity | PARTIAL | `TUTOR_CAPABILITY` and `TUTOR_AVAILABILITY` do not have standalone detail endpoints; they are tutor-scoped only. |
+| Raw SQL cleanup parity | PASS | `backend/app/repositories/data_repository.py` and `backend/app/services/business_service.py` now return no matches for `db.query`, `db.add`, `db.delete`, `db.refresh`, `db.flush`, `joinedload`, or `.options(`. |
 | Frontend screen coverage verification | PARTIAL | The first-class pages now exist, but the newer subjects/assignments/schedules/sessions/finance flows still need live end-to-end UI verification against the running backend. |
 | Frontend detail/update parity | PARTIAL | Assignment reassignment, session full-edit, and invoice/payment update flows are still not exposed even though several adjacent create/cancel actions are wired. |
 | Backend input validation parity | PARTIAL | Service-layer validation now covers common status, date/time, and numeric constraint cases before SQL Server, and shared updates now support explicit nullable-field clearing with consistent `updated_at` touches. Remaining work: negative HTTP coverage and centralized DB error translation. |

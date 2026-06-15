@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from hashlib import sha256
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import HTTPException
@@ -382,8 +383,8 @@ def schedule_to_response(schedule: ClassSchedule) -> dict:
 
 
 def session_to_response(session: LessonSession) -> dict:
-    class_label = None
-    if session.study_class and session.study_class.assignment:
+    class_label = getattr(session, "class_label", None)
+    if class_label is None and getattr(session, "study_class", None) and session.study_class.assignment:
         request = session.study_class.assignment.learning_request
         class_label = _subject_label(request.subject) if request else None
     return {
@@ -416,16 +417,22 @@ def invoice_to_response(invoice: TuitionInvoice) -> dict:
 
 def payment_to_response(payment: TuitionPayment) -> dict:
     invoice = payment.invoice
-    study_class = invoice.study_class if invoice else None
-    assignment = study_class.assignment if study_class else None
-    request = assignment.learning_request if assignment else None
-    subject = request.subject if request else None
+    subject_name = getattr(payment, "subject_name", None)
+    subject_grade_level = getattr(payment, "subject_grade_level", None)
+    class_name = None
+    if subject_name is not None:
+        class_name = _subject_label(SimpleNamespace(subject_name=subject_name, grade_level=subject_grade_level))
+    elif invoice and getattr(invoice, "study_class", None):
+        assignment = invoice.study_class.assignment
+        request = assignment.learning_request if assignment else None
+        subject = request.subject if request else None
+        class_name = _subject_label(subject) if subject else None
     return {
         "id": payment.payment_id,
         "invoice_id": payment.invoice_id,
-        "student_id": request.student_id if request else None,
+        "student_id": getattr(payment, "student_id", None),
         "class_id": invoice.class_id if invoice else None,
-        "className": _subject_label(subject),
+        "className": class_name,
         "amount": _format_money(payment.amount_paid),
         "amount_value": _money(payment.amount_paid),
         "period": (
@@ -1051,17 +1058,13 @@ def create_assignment(db: Session, payload: TutorAssignmentCreate) -> dict:
     capabilities = [cap.subject_id for cap in tutor.capabilities]
     if capabilities and request.subject_id not in capabilities:
         raise HTTPException(status_code=400, detail="Tutor does not have capability for requested subject")
-    assignment = repo.create_assignment(
+    assignment = repo.call_assign_tutor_to_request(
         db,
-        TutorAssignment(
-            request_id=payload.request_id,
-            tutor_id=payload.tutor_id,
-            staff_id=payload.staff_id,
-            note=payload.note,
-            status="ASSIGNED",
-        ),
+        request_id=payload.request_id,
+        tutor_id=payload.tutor_id,
+        staff_id=payload.staff_id,
+        note=payload.note,
     )
-    repo.update_learning_request(db, payload.request_id, {"status": "ASSIGNED"})
     repo.commit(db)
     return assignment_to_response(assignment)
 
@@ -1245,7 +1248,7 @@ def create_session(db: Session, payload: LessonSessionCreate) -> dict:
     data["status"] = _normalize_choice(data["status"], SESSION_STATUSES, "status")
     session = repo.create_session(db, LessonSession(**data))
     repo.commit(db)
-    return session_to_response(session)
+    return session_to_response(repo.get_session(db, session.session_id))
 
 
 def get_session_or_404(db: Session, session_id: int) -> LessonSession:
@@ -1270,25 +1273,24 @@ def update_session(db: Session, session_id: int, payload: LessonSessionUpdate) -
     )
     if "status" in data:
         data["status"] = _normalize_choice(data["status"], SESSION_STATUSES, "status")
-    repo.apply_updates(session, data)
+    repo.update_session(db, session_id, data)
     repo.commit(db)
-    return session_to_response(session)
+    return session_to_response(repo.get_session(db, session_id))
 
 
 def update_session_status(db: Session, session_id: int, payload: LessonSessionStatusUpdate) -> dict:
-    session = get_session_or_404(db, session_id)
-    session.status = _normalize_choice(payload.status, SESSION_STATUSES, "status")
+    get_session_or_404(db, session_id)
+    data = {"status": _normalize_choice(payload.status, SESSION_STATUSES, "status")}
     if "content_note" in payload.model_fields_set:
-        session.content_note = payload.content_note
-    repo.touch_model(session)
+        data["content_note"] = payload.content_note
+    repo.update_session(db, session_id, data)
     repo.commit(db)
-    return session_to_response(session)
+    return session_to_response(repo.get_session(db, session_id))
 
 
 def delete_session(db: Session, session_id: int) -> dict:
-    session = get_session_or_404(db, session_id)
-    session.status = "CANCELED"
-    repo.touch_model(session)
+    get_session_or_404(db, session_id)
+    repo.cancel_session(db, session_id)
     repo.commit(db)
     return {"detail": "Session canceled"}
 
@@ -1342,15 +1344,14 @@ def update_invoice(db: Session, invoice_id: int, payload: TuitionInvoiceUpdate) 
     )
     if "status" in data:
         data["status"] = _normalize_invoice_status(data["status"])
-    repo.apply_updates(invoice, data)
+    repo.update_invoice(db, invoice_id, data)
     repo.commit(db)
     return invoice_to_response(repo.get_invoice(db, invoice_id))
 
 
 def delete_invoice(db: Session, invoice_id: int) -> dict:
-    invoice = get_invoice_or_404(db, invoice_id)
-    invoice.status = "CANCELED"
-    repo.touch_model(invoice)
+    get_invoice_or_404(db, invoice_id)
+    repo.cancel_invoice(db, invoice_id)
     repo.commit(db)
     return {"detail": "Invoice canceled"}
 
@@ -1382,6 +1383,9 @@ def create_payment(db: Session, payload: TuitionPaymentCreate) -> dict:
     payment_status = _normalize_payment_status(payload.status) if payload.status else "SUCCESS"
 
     invoice = None
+    period_start = None
+    period_end = None
+    class_student_id = None
     if payload.invoice_id:
         invoice = get_invoice_or_404(db, payload.invoice_id)
         if payload.class_id is not None and invoice.class_id != payload.class_id:
@@ -1391,42 +1395,37 @@ def create_payment(db: Session, payload: TuitionPaymentCreate) -> dict:
         period_end = payload.period_end or date.today()
         _validate_date_window(period_start, period_end, "period_start", "period_end")
         invoice = repo.get_invoice_by_class_period(db, payload.class_id, period_start, period_end)
-        if not invoice:
-            get_class_or_404(db, payload.class_id)
-            snapshot = repo.get_class_invoice_snapshot(db, payload.class_id, period_start, period_end)
-            invoice = repo.create_invoice(
-                db,
-                TuitionInvoice(
-                    class_id=payload.class_id,
-                    period_start=period_start,
-                    period_end=period_end,
-                    completed_sessions=snapshot["completed_sessions"],
-                    tuition_fee_per_session=snapshot["tuition_fee_per_session"],
-                    amount_due=snapshot["amount_due"],
-                    amount_paid=Decimal("0"),
-                    status="UNPAID",
-                ),
-            )
+        if invoice:
+            class_student_id = invoice.study_class.assignment.learning_request.student_id
+        else:
+            study_class = get_class_or_404(db, payload.class_id)
+            class_student_id = getattr(study_class, "student_id", None)
     if not invoice:
-        raise HTTPException(status_code=400, detail="invoice_id or class_id is required")
+        if payload.class_id is None:
+            raise HTTPException(status_code=400, detail="invoice_id or class_id is required")
     if payload.student_id is not None:
-        class_student_id = invoice.study_class.assignment.learning_request.student_id
+        if invoice is not None:
+            class_student_id = invoice.study_class.assignment.learning_request.student_id
         if payload.student_id != class_student_id:
             raise HTTPException(status_code=400, detail="student_id must match the invoice class student")
-    if invoice.status == "CANCELED":
+    if invoice is not None and invoice.status == "CANCELED":
         raise HTTPException(status_code=400, detail="Cannot record payment for a canceled invoice")
     if payload.staff_id is not None:
         get_staff_or_404(db, payload.staff_id)
 
     if payment_status == "SUCCESS":
-        remaining_amount = _invoice_remaining_amount(invoice)
+        if invoice is not None:
+            remaining_amount = _invoice_remaining_amount(invoice)
+        else:
+            snapshot = repo.get_class_invoice_snapshot(db, payload.class_id, period_start, period_end)
+            remaining_amount = _decimal_money(snapshot["amount_due"])
         if payment_amount > remaining_amount:
             raise HTTPException(status_code=400, detail="Payment amount exceeds invoice remaining amount")
 
     payment = repo.create_payment(
         db,
         TuitionPayment(
-            invoice_id=invoice.invoice_id,
+            invoice_id=invoice.invoice_id if invoice is not None else None,
             staff_id=payload.staff_id,
             amount_paid=payment_amount,
             payment_date=payload.payment_date or datetime.utcnow(),
@@ -1434,9 +1433,12 @@ def create_payment(db: Session, payload: TuitionPaymentCreate) -> dict:
             note=payload.note,
             status=payment_status,
         ),
+        class_id=payload.class_id if invoice is None else None,
+        period_start=period_start if invoice is None else None,
+        period_end=period_end if invoice is None else None,
     )
     repo.commit(db)
-    return payment_to_response(repo.get_payment(db, payment.payment_id))
+    return payment_to_response(payment)
 
 
 def get_payment_or_404(db: Session, payment_id: int) -> TuitionPayment:
@@ -1462,15 +1464,14 @@ def update_payment(db: Session, payment_id: int, payload: TuitionPaymentUpdate) 
         remaining_amount = _invoice_remaining_amount_excluding_payment(payment.invoice, payment)
         if _decimal_money(next_amount) > remaining_amount:
             raise HTTPException(status_code=400, detail="Payment amount exceeds invoice remaining amount")
-    repo.apply_updates(payment, data)
+    repo.update_payment(db, payment_id, data)
     repo.commit(db)
     return payment_to_response(repo.get_payment(db, payment_id))
 
 
 def delete_payment(db: Session, payment_id: int) -> dict:
-    payment = get_payment_or_404(db, payment_id)
-    payment.status = "CANCELED"
-    repo.touch_model(payment)
+    get_payment_or_404(db, payment_id)
+    repo.cancel_payment(db, payment_id)
     repo.commit(db)
     return {"detail": "Payment canceled"}
 
@@ -1491,13 +1492,14 @@ def tuition_summary(db: Session, class_id: int) -> dict:
 
 
 def dashboard_summary(db: Session) -> dict:
+    summary = repo.get_dashboard_summary(db)
     return {
-        "total_students": db.query(Student).count(),
-        "total_tutors": db.query(Tutor).count(),
-        "pending_learning_requests": db.query(LearningRequest).filter(LearningRequest.status == "PENDING").count(),
-        "active_classes": db.query(StudyClass).filter(StudyClass.status == "ACTIVE").count(),
-        "completed_sessions": db.query(LessonSession).filter(LessonSession.status == "COMPLETED").count(),
-        "unpaid_invoices": db.query(TuitionInvoice).filter(TuitionInvoice.status == "UNPAID").count(),
-        "partially_paid_invoices": db.query(TuitionInvoice).filter(TuitionInvoice.status == "PARTIALLY_PAID").count(),
-        "successful_payments": db.query(TuitionPayment).filter(TuitionPayment.status == "SUCCESS").count(),
+        "total_students": summary.total_students,
+        "total_tutors": summary.total_tutors,
+        "pending_learning_requests": summary.pending_learning_requests,
+        "active_classes": summary.active_classes,
+        "completed_sessions": summary.completed_sessions,
+        "unpaid_invoices": summary.unpaid_invoices,
+        "partially_paid_invoices": summary.partially_paid_invoices,
+        "successful_payments": summary.successful_payments,
     }

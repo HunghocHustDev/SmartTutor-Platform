@@ -34,6 +34,12 @@ GO
 USE TutorCenterDB;
 GO
 
+SET ANSI_NULLS ON;
+GO
+
+SET QUOTED_IDENTIFIER ON;
+GO
+
 /* =========================================================
    0. DROP OLD OBJECTS FOR CLEAN RE-RUN
    ========================================================= */
@@ -42,6 +48,26 @@ IF OBJECT_ID(N'TRG_TUITION_PAYMENT_RECALC_INVOICE', N'TR') IS NOT NULL
     DROP TRIGGER TRG_TUITION_PAYMENT_RECALC_INVOICE;
 GO
 
+IF OBJECT_ID(N'SP_CREATE_TUITION_PAYMENT', N'P') IS NOT NULL
+    DROP PROCEDURE SP_CREATE_TUITION_PAYMENT;
+GO
+
+IF OBJECT_ID(N'SP_ASSIGN_TUTOR_TO_REQUEST', N'P') IS NOT NULL
+    DROP PROCEDURE SP_ASSIGN_TUTOR_TO_REQUEST;
+GO
+
+IF OBJECT_ID(N'FN_INVOICE_REMAINING_AMOUNT', N'FN') IS NOT NULL
+    DROP FUNCTION FN_INVOICE_REMAINING_AMOUNT;
+GO
+
+IF OBJECT_ID(N'FN_CLASS_TUITION_SUMMARY', N'IF') IS NOT NULL
+    DROP FUNCTION FN_CLASS_TUITION_SUMMARY;
+GO
+
+DROP VIEW IF EXISTS VW_PAYMENT_DETAIL;
+DROP VIEW IF EXISTS VW_INVOICE_DETAIL;
+DROP VIEW IF EXISTS VW_LESSON_SESSION_DETAIL;
+DROP VIEW IF EXISTS VW_LEARNING_REQUEST_DETAIL;
 DROP VIEW IF EXISTS VW_STUDY_CLASS_DETAIL;
 GO
 
@@ -446,9 +472,505 @@ BEGIN
 END;
 GO
 
+CREATE FUNCTION FN_INVOICE_REMAINING_AMOUNT (@invoice_id INT)
+RETURNS DECIMAL(18,2)
+AS
+BEGIN
+    DECLARE @remaining DECIMAL(18,2);
+
+    SELECT
+        @remaining =
+            CASE
+                WHEN amount_due - amount_paid < 0 THEN 0
+                ELSE amount_due - amount_paid
+            END
+    FROM TUITION_INVOICE
+    WHERE invoice_id = @invoice_id;
+
+    RETURN COALESCE(@remaining, 0);
+END;
+GO
+
+CREATE FUNCTION FN_CLASS_TUITION_SUMMARY (@class_id INT)
+RETURNS TABLE
+AS
+RETURN
+WITH completed AS (
+    SELECT
+        ls.class_id,
+        COUNT(*) AS completed_sessions
+    FROM LESSON_SESSION ls
+    WHERE ls.class_id = @class_id
+      AND ls.status = 'COMPLETED'
+    GROUP BY ls.class_id
+),
+invoice_totals AS (
+    SELECT
+        ti.class_id,
+        COALESCE(SUM(ti.amount_due), 0) AS total_invoiced,
+        SUM(CASE WHEN ti.status IN ('UNPAID', 'PARTIALLY_PAID', 'OVERDUE') THEN 1 ELSE 0 END) AS unpaid_invoice_count,
+        SUM(CASE WHEN ti.status = 'OVERDUE' THEN 1 ELSE 0 END) AS overdue_invoice_count
+    FROM TUITION_INVOICE ti
+    WHERE ti.class_id = @class_id
+    GROUP BY ti.class_id
+),
+payment_totals AS (
+    SELECT
+        ti.class_id,
+        COALESCE(SUM(CASE WHEN tp.status = 'SUCCESS' THEN tp.amount_paid ELSE 0 END), 0) AS total_paid_success
+    FROM TUITION_INVOICE ti
+    LEFT JOIN TUITION_PAYMENT tp
+        ON tp.invoice_id = ti.invoice_id
+    WHERE ti.class_id = @class_id
+    GROUP BY ti.class_id
+)
+SELECT
+    sc.class_id,
+    COALESCE(c.completed_sessions, 0) AS completed_sessions,
+    sc.tuition_fee_per_session,
+    COALESCE(c.completed_sessions, 0) * sc.tuition_fee_per_session AS total_fee,
+    COALESCE(i.total_invoiced, 0) AS total_invoiced,
+    COALESCE(p.total_paid_success, 0) AS total_paid_success,
+    CASE
+        WHEN (COALESCE(c.completed_sessions, 0) * sc.tuition_fee_per_session) - COALESCE(p.total_paid_success, 0) < 0 THEN 0
+        ELSE (COALESCE(c.completed_sessions, 0) * sc.tuition_fee_per_session) - COALESCE(p.total_paid_success, 0)
+    END AS total_remaining,
+    COALESCE(i.unpaid_invoice_count, 0) AS unpaid_invoice_count,
+    COALESCE(i.overdue_invoice_count, 0) AS overdue_invoice_count,
+    COALESCE(p.total_paid_success, 0) AS paid_amount,
+    CASE
+        WHEN (COALESCE(c.completed_sessions, 0) * sc.tuition_fee_per_session) - COALESCE(p.total_paid_success, 0) < 0 THEN 0
+        ELSE (COALESCE(c.completed_sessions, 0) * sc.tuition_fee_per_session) - COALESCE(p.total_paid_success, 0)
+    END AS remaining_amount
+FROM STUDY_CLASS sc
+LEFT JOIN completed c
+    ON c.class_id = sc.class_id
+LEFT JOIN invoice_totals i
+    ON i.class_id = sc.class_id
+LEFT JOIN payment_totals p
+    ON p.class_id = sc.class_id
+WHERE sc.class_id = @class_id;
+GO
+
+CREATE PROCEDURE SP_ASSIGN_TUTOR_TO_REQUEST
+    @request_id INT,
+    @tutor_id INT,
+    @staff_id INT = NULL,
+    @note NVARCHAR(500) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @request_status VARCHAR(20);
+    DECLARE @request_subject_id INT;
+    DECLARE @assignment_id INT;
+
+    BEGIN TRANSACTION;
+
+    SELECT
+        @request_status = lr.status,
+        @request_subject_id = lr.subject_id
+    FROM LEARNING_REQUEST lr WITH (UPDLOCK, HOLDLOCK)
+    WHERE lr.request_id = @request_id;
+
+    IF @request_status IS NULL
+        THROW 50000, 'Learning request not found', 1;
+
+    IF @request_status = 'CANCELED'
+        THROW 50000, 'Learning request is canceled', 1;
+
+    IF @request_status <> 'PENDING'
+        THROW 50000, 'Learning request is not pending', 1;
+
+    IF EXISTS (
+        SELECT 1
+        FROM TUTOR_ASSIGNMENT ta WITH (UPDLOCK, HOLDLOCK)
+        WHERE ta.request_id = @request_id
+          AND ta.status = 'ASSIGNED'
+    )
+        THROW 50000, 'Learning request already has an active assignment', 1;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM TUTOR t
+        WHERE t.tutor_id = @tutor_id
+          AND t.status = 'ACTIVE'
+    )
+        THROW 50000, 'Tutor must be ACTIVE to receive an assignment', 1;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM TUTOR_CAPABILITY tc
+        WHERE tc.tutor_id = @tutor_id
+          AND tc.subject_id = @request_subject_id
+    )
+        THROW 50000, 'Tutor does not have capability for requested subject', 1;
+
+    INSERT INTO TUTOR_ASSIGNMENT (
+        request_id,
+        tutor_id,
+        staff_id,
+        status,
+        note
+    )
+    VALUES (
+        @request_id,
+        @tutor_id,
+        @staff_id,
+        'ASSIGNED',
+        @note
+    );
+
+    SET @assignment_id = CAST(SCOPE_IDENTITY() AS INT);
+
+    UPDATE LEARNING_REQUEST
+    SET
+        status = 'ASSIGNED',
+        updated_at = SYSUTCDATETIME()
+    WHERE request_id = @request_id;
+
+    COMMIT TRANSACTION;
+
+    SELECT
+        ta.assignment_id,
+        ta.request_id,
+        ta.tutor_id,
+        ta.staff_id,
+        ta.assigned_at,
+        ta.status,
+        ta.note,
+        ta.created_at,
+        ta.updated_at
+    FROM TUTOR_ASSIGNMENT ta
+    WHERE ta.assignment_id = @assignment_id;
+END;
+GO
+
+CREATE PROCEDURE SP_CREATE_TUITION_PAYMENT
+    @invoice_id INT = NULL,
+    @class_id INT = NULL,
+    @period_start DATE = NULL,
+    @period_end DATE = NULL,
+    @amount_paid DECIMAL(18,2),
+    @payment_method NVARCHAR(50) = NULL,
+    @payment_date DATETIME2 = NULL,
+    @staff_id INT = NULL,
+    @note NVARCHAR(MAX) = NULL,
+    @status VARCHAR(20) = 'SUCCESS'
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @resolved_invoice_id INT = @invoice_id;
+    DECLARE @tuition_fee_per_session DECIMAL(18,2);
+    DECLARE @completed_sessions INT;
+    DECLARE @amount_due DECIMAL(18,2);
+    DECLARE @payment_id INT;
+
+    IF @amount_paid IS NULL OR @amount_paid <= 0
+        THROW 50000, 'Payment amount must be greater than zero', 1;
+
+    IF @status NOT IN ('SUCCESS', 'CANCELED', 'REFUNDED')
+        THROW 50000, 'Invalid payment status', 1;
+
+    BEGIN TRANSACTION;
+
+    IF @resolved_invoice_id IS NULL
+    BEGIN
+        IF @class_id IS NULL
+            THROW 50000, 'invoice_id or class_id is required', 1;
+
+        IF @period_start IS NULL OR @period_end IS NULL
+            THROW 50000, 'period_start and period_end are required when invoice_id is missing', 1;
+
+        IF @period_end < @period_start
+            THROW 50000, 'period_end must be on or after period_start', 1;
+
+        SELECT
+            @resolved_invoice_id = invoice_id
+        FROM TUITION_INVOICE
+        WHERE class_id = @class_id
+          AND period_start = @period_start
+          AND period_end = @period_end;
+
+        IF @resolved_invoice_id IS NULL
+        BEGIN
+            SELECT
+                @tuition_fee_per_session = tuition_fee_per_session
+            FROM STUDY_CLASS
+            WHERE class_id = @class_id;
+
+            IF @tuition_fee_per_session IS NULL
+                THROW 50000, 'Class not found', 1;
+
+            SELECT
+                @completed_sessions = COUNT(*)
+            FROM LESSON_SESSION
+            WHERE class_id = @class_id
+              AND status = 'COMPLETED'
+              AND lesson_date BETWEEN @period_start AND @period_end;
+
+            SET @completed_sessions = COALESCE(@completed_sessions, 0);
+            SET @amount_due = @completed_sessions * @tuition_fee_per_session;
+
+            INSERT INTO TUITION_INVOICE (
+                class_id,
+                period_start,
+                period_end,
+                completed_sessions,
+                tuition_fee_per_session,
+                amount_due,
+                amount_paid,
+                status
+            )
+            VALUES (
+                @class_id,
+                @period_start,
+                @period_end,
+                @completed_sessions,
+                @tuition_fee_per_session,
+                @amount_due,
+                0,
+                'UNPAID'
+            );
+
+            SET @resolved_invoice_id = CAST(SCOPE_IDENTITY() AS INT);
+        END
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM TUITION_INVOICE WHERE invoice_id = @resolved_invoice_id)
+        THROW 50000, 'Invoice not found', 1;
+
+    IF EXISTS (
+        SELECT 1
+        FROM TUITION_INVOICE
+        WHERE invoice_id = @resolved_invoice_id
+          AND status = 'CANCELED'
+    )
+        THROW 50000, 'Cannot record payment for a canceled invoice', 1;
+
+    IF @status = 'SUCCESS' AND dbo.FN_INVOICE_REMAINING_AMOUNT(@resolved_invoice_id) < @amount_paid
+        THROW 50000, 'Payment amount exceeds invoice remaining amount', 1;
+
+    INSERT INTO TUITION_PAYMENT (
+        invoice_id,
+        staff_id,
+        payment_date,
+        amount_paid,
+        payment_method,
+        note,
+        status
+    )
+    VALUES (
+        @resolved_invoice_id,
+        @staff_id,
+        COALESCE(@payment_date, SYSUTCDATETIME()),
+        @amount_paid,
+        @payment_method,
+        @note,
+        @status
+    );
+
+    SET @payment_id = CAST(SCOPE_IDENTITY() AS INT);
+
+    COMMIT TRANSACTION;
+
+    SELECT @payment_id AS payment_id, @resolved_invoice_id AS invoice_id;
+END;
+GO
+
 /* =========================================================
    6. VIEWS FOR BACKEND/FRONTEND DISPLAY
    ========================================================= */
+
+CREATE VIEW VW_LEARNING_REQUEST_DETAIL
+AS
+SELECT
+    lr.request_id,
+    lr.student_id,
+    st.full_name AS student_name,
+    st.phone AS student_phone,
+    st.contact_email AS student_email,
+    lr.subject_id,
+    su.subject_name,
+    su.grade_level AS subject_grade_level,
+    su.subject_group,
+    lr.requested_level,
+    lr.learning_goal,
+    lr.preferred_area,
+    lr.preferred_mode,
+    lr.preferred_schedule,
+    lr.expected_fee,
+    lr.status,
+    lr.created_at,
+    lr.updated_at,
+    latest_assignment.assignment_id,
+    latest_assignment.assignment_status,
+    latest_assignment.assignment_assigned_at,
+    latest_assignment.assignment_note,
+    latest_assignment.assignment_staff_id,
+    latest_assignment.assignment_tutor_id,
+    latest_assignment.class_id,
+    latest_assignment.assignment_staff_name,
+    latest_assignment.assigned_tutor_name
+FROM LEARNING_REQUEST lr
+JOIN STUDENT st
+    ON st.student_id = lr.student_id
+JOIN SUBJECT su
+    ON su.subject_id = lr.subject_id
+OUTER APPLY (
+    SELECT TOP 1
+        ta.assignment_id,
+        ta.status AS assignment_status,
+        ta.assigned_at AS assignment_assigned_at,
+        ta.note AS assignment_note,
+        ta.staff_id AS assignment_staff_id,
+        ta.tutor_id AS assignment_tutor_id,
+        sc.class_id,
+        sf.full_name AS assignment_staff_name,
+        tu.full_name AS assigned_tutor_name
+    FROM TUTOR_ASSIGNMENT ta
+    LEFT JOIN STUDY_CLASS sc
+        ON sc.assignment_id = ta.assignment_id
+    LEFT JOIN STAFF sf
+        ON sf.staff_id = ta.staff_id
+    LEFT JOIN TUTOR tu
+        ON tu.tutor_id = ta.tutor_id
+    WHERE ta.request_id = lr.request_id
+    ORDER BY
+        CASE WHEN ta.status = 'ASSIGNED' THEN 0 ELSE 1 END,
+        ta.assigned_at DESC,
+        ta.assignment_id DESC
+) latest_assignment;
+GO
+
+CREATE VIEW VW_LESSON_SESSION_DETAIL
+AS
+SELECT
+    ls.session_id,
+    ls.class_id,
+    sc.class_code,
+    ls.schedule_id,
+    ls.session_number,
+    ls.lesson_date,
+    ls.start_time,
+    ls.end_time,
+    ls.status,
+    ls.content_note,
+    ls.created_at,
+    ls.updated_at,
+    cs.day_of_week AS schedule_day_of_week,
+    cs.start_time AS schedule_start_time,
+    cs.end_time AS schedule_end_time,
+    cs.effective_from AS schedule_effective_from,
+    cs.effective_to AS schedule_effective_to,
+    lr.request_id,
+    lr.student_id,
+    st.full_name AS student_name,
+    su.subject_id,
+    su.subject_name,
+    su.grade_level AS subject_grade_level,
+    ta.tutor_id,
+    tu.full_name AS tutor_name,
+    CONCAT(su.subject_name, COALESCE(N' - ' + su.grade_level, N'')) AS class_label
+FROM LESSON_SESSION ls
+JOIN STUDY_CLASS sc
+    ON sc.class_id = ls.class_id
+JOIN TUTOR_ASSIGNMENT ta
+    ON ta.assignment_id = sc.assignment_id
+JOIN LEARNING_REQUEST lr
+    ON lr.request_id = ta.request_id
+JOIN STUDENT st
+    ON st.student_id = lr.student_id
+JOIN SUBJECT su
+    ON su.subject_id = lr.subject_id
+JOIN TUTOR tu
+    ON tu.tutor_id = ta.tutor_id
+LEFT JOIN CLASS_SCHEDULE cs
+    ON cs.schedule_id = ls.schedule_id;
+GO
+
+CREATE VIEW VW_INVOICE_DETAIL
+AS
+SELECT
+    ti.invoice_id,
+    ti.class_id,
+    sc.class_code,
+    ti.period_start,
+    ti.period_end,
+    ti.completed_sessions,
+    ti.tuition_fee_per_session,
+    ti.amount_due,
+    ti.amount_paid,
+    ti.status,
+    ti.created_at,
+    ti.updated_at,
+    lr.student_id,
+    st.full_name AS student_name,
+    su.subject_id,
+    su.subject_name,
+    su.grade_level AS subject_grade_level,
+    ta.tutor_id,
+    tu.full_name AS tutor_name
+FROM TUITION_INVOICE ti
+JOIN STUDY_CLASS sc
+    ON sc.class_id = ti.class_id
+JOIN TUTOR_ASSIGNMENT ta
+    ON ta.assignment_id = sc.assignment_id
+JOIN LEARNING_REQUEST lr
+    ON lr.request_id = ta.request_id
+JOIN STUDENT st
+    ON st.student_id = lr.student_id
+JOIN SUBJECT su
+    ON su.subject_id = lr.subject_id
+JOIN TUTOR tu
+    ON tu.tutor_id = ta.tutor_id;
+GO
+
+CREATE VIEW VW_PAYMENT_DETAIL
+AS
+SELECT
+    tp.payment_id,
+    tp.invoice_id,
+    ti.class_id,
+    sc.class_code,
+    lr.student_id,
+    st.full_name AS student_name,
+    su.subject_id,
+    su.subject_name,
+    su.grade_level AS subject_grade_level,
+    tp.staff_id,
+    sf.full_name AS staff_name,
+    tp.payment_date,
+    tp.amount_paid,
+    tp.payment_method,
+    tp.note,
+    tp.status AS payment_status,
+    tp.created_at AS payment_created_at,
+    tp.updated_at AS payment_updated_at,
+    ti.period_start,
+    ti.period_end,
+    ti.amount_due,
+    ti.amount_paid AS invoice_amount_paid,
+    ti.status AS invoice_status
+FROM TUITION_PAYMENT tp
+JOIN TUITION_INVOICE ti
+    ON ti.invoice_id = tp.invoice_id
+JOIN STUDY_CLASS sc
+    ON sc.class_id = ti.class_id
+JOIN TUTOR_ASSIGNMENT ta
+    ON ta.assignment_id = sc.assignment_id
+JOIN LEARNING_REQUEST lr
+    ON lr.request_id = ta.request_id
+JOIN STUDENT st
+    ON st.student_id = lr.student_id
+JOIN SUBJECT su
+    ON su.subject_id = lr.subject_id
+LEFT JOIN STAFF sf
+    ON sf.staff_id = tp.staff_id;
+GO
 
 CREATE VIEW VW_STUDY_CLASS_DETAIL
 AS

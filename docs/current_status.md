@@ -2,13 +2,14 @@
 
 ## Last Updated
 
-- 2026-06-14
+- 2026-06-15
 
 ## Source Of Truth
 
 - Database schema source of truth: `sql/schema.sql`
 - Backend/frontend contract reference: `docs/api_contract.md`
 - Exact completion table: `docs/completion_matrix.md`
+- DB object migration roadmap for the next batch: `docs/db_object_migration_plan.md`
 
 ## Verified Backend Status
 
@@ -137,6 +138,50 @@ uv run python tests/http_crud_smoke.py --base-url http://127.0.0.1:8000 --staff-
   - `update_schedule` and `deactivate_schedule` now use whitelisted explicit SQL updates
   - schedule service update/delete flows no longer mutate returned schedule objects directly
   - this step is compile/search verified; session, invoice, payment, and dashboard paths remain pending later migration steps
+- SQL raw repository migration Step 8 is complete for lesson session CRUD, status updates, and session filters:
+  - `get_sessions` now uses parameterized raw SQL with normalized joins through `STUDY_CLASS`, `TUTOR_ASSIGNMENT`, and `LEARNING_REQUEST`
+  - `get_session` and `create_session` now use parameterized raw SQL against `LESSON_SESSION`
+  - `update_session` and `cancel_session` now use whitelisted explicit SQL updates
+  - session status patch can still clear `content_note` when the field is explicitly sent as `null`
+  - `session_to_response` now supports raw SQL flat `class_label` rows while keeping the previous relationship fallback
+  - this step is compile/search verified; invoice, payment, and dashboard paths remain pending later migration steps
+- SQL raw repository migration Step 9 is complete for invoice CRUD, list/detail reads, and class-period lookup:
+  - `get_invoices`, `get_invoice`, and `get_invoice_by_class_period` now use parameterized raw SQL with normalized joins through `STUDY_CLASS`, `TUTOR_ASSIGNMENT`, and `LEARNING_REQUEST`
+  - `create_invoice` now uses parameterized raw SQL against `TUITION_INVOICE`
+  - `update_invoice` and `cancel_invoice` now use whitelisted explicit SQL updates
+  - invoice read helpers attach minimal class/request context so existing payment validation can still resolve the invoice class student before the payment migration step
+  - invoice service update/delete flows no longer mutate returned invoice objects directly
+  - this step is compile/search verified; payment and dashboard paths remain pending later migration steps
+- SQL raw repository migration Step 10 is complete for payment CRUD/list/detail and dashboard summary:
+  - `sql/schema.sql` now defines `VW_PAYMENT_DETAIL`, `VW_INVOICE_DETAIL`, `FN_INVOICE_REMAINING_AMOUNT`, and `SP_CREATE_TUITION_PAYMENT`
+  - `get_payments` and `get_payment` now read from `VW_PAYMENT_DETAIL`
+  - `create_payment` now calls `SP_CREATE_TUITION_PAYMENT` while preserving service-layer overpayment validation before insert
+  - `update_payment` and `cancel_payment` now use whitelisted explicit SQL updates and continue to rely on the existing payment trigger for invoice recalculation
+  - payment read helpers attach minimal nested invoice context so access control and remaining-amount validation keep working during the final cleanup stage
+  - `/dashboard/summary` now uses one raw SQL aggregate statement instead of multiple ORM count queries
+  - this step is live-verified on SQL Server after rerunning `sql/schema.sql`, reseeding sample data, and rerunning the auth-aware smoke test
+- DB Object Migration Plan Phase 1 is now implemented and compile-verified:
+  - `sql/schema.sql` now defines `VW_LEARNING_REQUEST_DETAIL`, `VW_LESSON_SESSION_DETAIL`, and `FN_CLASS_TUITION_SUMMARY`
+  - learning request list/detail reads now use `VW_LEARNING_REQUEST_DETAIL`
+  - lesson session list/detail reads now use `VW_LESSON_SESSION_DETAIL`
+  - `/classes/{id}/tuition-summary` now reads from `FN_CLASS_TUITION_SUMMARY`
+  - invoice list/detail/class-period reads now standardize on `VW_INVOICE_DETAIL`
+  - learning request detail view exposes one assignment context per request, preferring active `ASSIGNED` rows and otherwise falling back to the latest assignment
+  - this batch is compile-verified; direct `sqlcmd` object validation and live HTTP reruns are still pending
+- DB Object Migration Plan Phase 2 is now implemented and compile-verified:
+  - `sql/schema.sql` now defines `SP_ASSIGN_TUTOR_TO_REQUEST`
+  - `POST /assignments` now calls the procedure through repository helper `call_assign_tutor_to_request(...)`
+  - assignment creation still keeps service-layer validation and authorization checks, but the transactional insert + request-status transition now runs inside SQL Server
+  - update/cancel assignment flows remain on the existing explicit SQL path for this phase
+  - this batch is compile-verified; direct `EXEC` validation and live HTTP reruns are still pending
+- Final raw-SQL cleanup is complete for repository/service runtime access patterns:
+  - `create_user`, `get_staff`, and `create_staff` no longer use ORM `db.add`, `db.flush`, or `db.query`
+  - `backend/app/repositories/data_repository.py` and `backend/app/services/business_service.py` now return no matches for `db.query`, `db.add`, `db.delete`, `db.refresh`, or `db.flush`
+  - `backend/app/repositories/data_repository.py` and `backend/app/services/business_service.py` now return no matches for `joinedload` or `.options(`
+- Live verification after the final SQL-object batch now confirms:
+  - `sql/schema.sql` executes cleanly against SQL Server when `SET ANSI_NULLS ON` and `SET QUOTED_IDENTIFIER ON` are enabled before filtered-index creation
+  - `sql/sample_data.sql` seeds successfully after schema reset
+  - auth-aware smoke test passes end to end after the payment procedure/view/function migration
 
 ## Verified Business Flow Status
 
@@ -152,7 +197,7 @@ The following flow has direct real-HTTP smoke-test evidence on the local SQL Ser
 - mark session `COMPLETED`: PASS
 - create invoice: PASS
 - create payment: PASS
-- create payment by `class_id` with auto-created invoice snapshot: compile-covered in smoke script, pending live rerun
+- create payment by `class_id` with auto-created invoice snapshot: PASS
 - reject overpayment with `400`: PASS
 - class response includes student/tutor/subject display data: PASS
 
@@ -240,12 +285,22 @@ powershell -ExecutionPolicy Bypass -File .\sql\reset_demo_utf8.ps1 -Seed sample
 
 ## Next Concrete Batch
 
-- verify the newly added staff finance/assignment/schedule/session screens against live backend requests, not just build/code audit
-- rerun the auth-aware CRUD smoke test against the active local backend and refresh evidence text if any endpoint behavior changed
-- continue SQL raw repository migration with lesson session CRUD, status updates, and session filters after the schedule raw SQL step
-- rerun the auth-aware CRUD smoke test to verify the new class-id payment auto-invoice branch against SQL Server triggers
+- rerun direct SQL Server validation for DB Object Migration Plan Phase 1:
+  - execute `sql/schema.sql`
+  - run focused `SELECT` checks against `VW_LEARNING_REQUEST_DETAIL`, `VW_LESSON_SESSION_DETAIL`, `VW_INVOICE_DETAIL`, and `FN_CLASS_TUITION_SUMMARY`
+  - rerun the auth-aware HTTP smoke test
+- rerun direct SQL Server validation for DB Object Migration Plan Phase 2:
+  - execute `sql/schema.sql`
+  - run focused `EXEC SP_ASSIGN_TUTOR_TO_REQUEST ...` checks for valid and invalid cases
+  - rerun the auth-aware HTTP smoke test
+- after the Phase 2 live verification, implement the remaining command procedures in order:
+  - `SP_CREATE_CLASS_FROM_ASSIGNMENT`
+  - `SP_CREATE_INVOICE_FOR_PERIOD`
+- keep `TRG_TUITION_PAYMENT_RECALC_INVOICE` as the finance consistency trigger and avoid adding hidden-workflow triggers
+- verify the newer frontend screens against live backend requests, not just build/code audit
 - add focused negative HTTP tests for the service-layer validation paths added in this batch
 - add focused HTTP coverage for explicit nullable-field clearing and `updated_at` movement on update/cancel paths
 - add missing detail/update UX for assignments, sessions, invoices, and payments where the backend already supports it
 - consider adding route-level protection so invalid actor routes are blocked before render
+- keep `docs/database_implementation.md` and `docs/completion_matrix.md` aligned with future live verification batches
 - keep `docs/completion_matrix.md` as the exact PASS/PARTIAL/FAIL source for future batches
