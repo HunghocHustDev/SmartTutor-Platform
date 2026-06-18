@@ -1429,3 +1429,37 @@
 ### Validation Performed
 
 - No linter errors in modified files.
+
+## 2026-06-18 - End-to-End Flow Walkthrough Doc
+
+### Changed Files
+
+- `docs/flow_walkthrough.md` (new)
+- `docs/agent_worklog.md` (this entry)
+
+### What Changed
+
+- Added `docs/flow_walkthrough.md` (1461 dong) mo ta chi tiết từng bước xử lý của 7 luồng nghiệp vụ chính, từ UI click → HTTP request → Router → Service → Repository → SQL/View/SP/Trigger → DB, kèm sơ đồ ASCII cho mỗi flow.
+- Noi dung gom:
+  1. Kiến trúc tổng quan (frontend + backend + SQL Server) và bản đồ thư mục `backend/app/`.
+  2. Lớp xác thực & phân quyền (token format, `require_roles`, các `ensure_*_access`).
+  3. Quy ước chung: repository pattern (raw text SQL), service layer, soft delete, response converter, validation.
+  4. **Flow #1 Login/Register** — UI → AuthContext → router → service → repository → SQL INSERT.
+  5. **Flow #2 Tạo Learning Request** — UI form → `createLearningRequest` → service validate (`_ensure_subject`, `_validate_non_negative_decimal`) → `INSERT … OUTPUT INSERTED.*`.
+  6. **Flow #3 Phân công Tutor** — `GET /learning-requests/{id}/suggested-tutors` (3-tier CTE: TutorWorkload + RequestSubject + EquivalentSubjects) → score algorithm (experience*10 + area*20 + schedule overlap) → `POST /assignments` → service guards → `EXEC SP_ASSIGN_TUTOR_TO_REQUEST`.
+  7. **Flow #4 Tạo Study Class** — `POST /classes` → service `create_study_class` (validate assignment, default class_code) → `EXEC SP_CREATE_CLASS_FROM_ASSIGNMENT`.
+  8. **Flow #5 Tạo Schedule + Auto-generate Sessions** — `POST /schedules` (manual) + `POST /sessions/preview-from-schedules` / `/generate-from-schedules` (Python algorithm `_build_session_plan` match `isoweekday()`, đánh số `session_number`).
+  9. **Flow #6 Cập nhật trạng thái buổi học** — `PATCH /sessions/{id}/status` (SCHEDULED → COMPLETED/STUDENT_ABSENT/TUTOR_ABSENT/CANCELED).
+  10. **Flow #7 Invoice + Payment + Realtime Summary** — `GET /classes/{id}/tuition-summary` (table-valued `FN_CLASS_TUITION_SUMMARY`) → `POST /invoices` (validate period) → `POST /payments` (service-layer check `amount_paid > remaining` → 400) → `EXEC SP_CREATE_TUITION_PAYMENT` → `TRG_TUITION_PAYMENT_RECALC_INVOICE` tự động cập nhật `TUITION_INVOICE`.
+- Phụ lục A: bảng tổng hợp soft-delete pattern (10 endpoint DELETE → status update).
+- Phụ lục B: tổng hợp SQL objects (5 view + 2 function + 4 SP + 1 trigger) kèm vị trí file `sql/schema.sql`.
+
+### Validation Performed
+
+- Doc da duoc viet UTF-8 (đã verify bang `Read` tool hien thi dung tieng Viet) va khong sua bat ky file code nao.
+- Khong chay compile/test (task la documentation-only).
+
+### Remaining Issues / Next Step
+
+- Tai lieu hien focus vao 7 flow nghiep vu chinh; cac flow phu (Tutor Capabilities/Availability, Tutor Profile CRUD, Student Profile CRUD) chua walkthrough rieng, nhung da co du context trong section 1-3 + `docs/api_contract.md` de tra cuu theo cung pattern.
+- Neu can mo rong them flow (vi du: goi y gia su scoring chi tiet, hoac dashboard summary) thi tao batch tiep theo.
