@@ -2,7 +2,7 @@
 
 Tai lieu nay mo ta du lieu hien tai trong `TutorCenterDB`, duoc tao boi:
 - `sql/schema.sql` + `sql/sample_data.sql` (seed chinh)
-- `backend/seed_final.py` + `backend/seed_topup.py` (seed bo sung 50+ hang/ban)
+- `sql/seed_test_request_25.sql` (seed goi y gia su cho request #25)
 
 ## Cach nap lai tu dau
 
@@ -10,10 +10,8 @@ Tai lieu nay mo ta du lieu hien tai trong `TutorCenterDB`, duoc tao boi:
 # 1. Reset schema + sample data
 powershell -ExecutionPolicy Bypass -File .\sql\reset_demo_utf8.ps1 -Seed sample
 
-# 2. Chay seed 50+ hang/ban
-cd backend
-uv run python seed_final.py
-uv run python seed_topup.py
+# 2. (Tuy chon) seed goi y gia su cho request #25
+sqlcmd ... -i .\sql\seed_test_request_25.sql
 ```
 
 ## Mat khau mac dinh
@@ -273,5 +271,4 @@ GET /learning-requests/25/suggested-tutors
 - Du lieu seed (`#37+` students, `#924+` tutors, `#76+` requests) la du lieu ngau nhien, khong co meaning nhat dinh — chi de test pagination, filter, va volume.
 - Cac request `13-24` va tutor/student co tien to `HTTP` la test artifact tu `backend/tests/http_crud_smoke.py`.
 - Tutor `#901`, `#902` chi ton tai neu da chay `sql/seed_test_request_25.sql`.
-- Khi reset DB bang `reset_demo_utf8.ps1`, seed bo sung (`seed_final.py`, `seed_topup.py`) phai chay lai de duy tri 50+ hang/ban.
 - `ADMIN` khong nam trong bo seed — nghiep vu da chuan hoa ve `STAFF`.
