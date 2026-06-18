@@ -128,28 +128,52 @@ export default function SchedulesPage() {
 
       {showForm && canManage && (
         <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 rounded-xl bg-white p-6 shadow-sm md:grid-cols-2">
-          <select className="rounded-lg border border-gray-200 px-3 py-2" value={form.class_id} onChange={(e) => setForm((prev) => ({ ...prev, class_id: e.target.value }))} required>
-            <option value="">Chọn lớp học</option>
-            {classes.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.code} - {item.subject} - {item.student}
-              </option>
-            ))}
-          </select>
-          <select className="rounded-lg border border-gray-200 px-3 py-2" value={form.day_of_week} onChange={(e) => setForm((prev) => ({ ...prev, day_of_week: e.target.value }))}>
-            {Object.entries(DAY_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-          <input className="rounded-lg border border-gray-200 px-3 py-2" type="time" value={form.start_time} onChange={(e) => setForm((prev) => ({ ...prev, start_time: e.target.value }))} />
-          <input className="rounded-lg border border-gray-200 px-3 py-2" type="time" value={form.end_time} onChange={(e) => setForm((prev) => ({ ...prev, end_time: e.target.value }))} />
-          <input className="rounded-lg border border-gray-200 px-3 py-2" type="date" value={form.effective_from} onChange={(e) => setForm((prev) => ({ ...prev, effective_from: e.target.value }))} />
-          <input className="rounded-lg border border-gray-200 px-3 py-2" type="date" value={form.effective_to} onChange={(e) => setForm((prev) => ({ ...prev, effective_to: e.target.value }))} />
-          <select className="rounded-lg border border-gray-200 px-3 py-2" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}>
-            <option value="ACTIVE">ACTIVE</option>
-            <option value="INACTIVE">INACTIVE</option>
-          </select>
-          <input className="rounded-lg border border-gray-200 px-3 py-2" placeholder="Ghi chú" value={form.note} onChange={(e) => setForm((prev) => ({ ...prev, note: e.target.value }))} />
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Lớp học</span>
+            <select className="rounded-lg border border-gray-200 px-3 py-2" value={form.class_id} onChange={(e) => setForm((prev) => ({ ...prev, class_id: e.target.value }))} required>
+              <option value="">-- Chọn lớp --</option>
+              {classes.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.code} - {item.subject} - {item.student}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Thứ trong tuần</span>
+            <select className="rounded-lg border border-gray-200 px-3 py-2" value={form.day_of_week} onChange={(e) => setForm((prev) => ({ ...prev, day_of_week: e.target.value }))}>
+              {Object.entries(DAY_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Giờ bắt đầu</span>
+            <input className="rounded-lg border border-gray-200 px-3 py-2" type="time" value={form.start_time} onChange={(e) => setForm((prev) => ({ ...prev, start_time: e.target.value }))} />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Giờ kết thúc</span>
+            <input className="rounded-lg border border-gray-200 px-3 py-2" type="time" value={form.end_time} onChange={(e) => setForm((prev) => ({ ...prev, end_time: e.target.value }))} />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Hiệu lực từ</span>
+            <input className="rounded-lg border border-gray-200 px-3 py-2" type="date" value={form.effective_from} onChange={(e) => setForm((prev) => ({ ...prev, effective_from: e.target.value }))} />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Hiệu lực đến</span>
+            <input className="rounded-lg border border-gray-200 px-3 py-2" type="date" value={form.effective_to} onChange={(e) => setForm((prev) => ({ ...prev, effective_to: e.target.value }))} />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Trạng thái</span>
+            <select className="rounded-lg border border-gray-200 px-3 py-2" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="INACTIVE">INACTIVE</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-gray-700">Ghi chú</span>
+            <input className="rounded-lg border border-gray-200 px-3 py-2" placeholder="Ghi chú" value={form.note} onChange={(e) => setForm((prev) => ({ ...prev, note: e.target.value }))} />
+          </label>
           <div className="md:col-span-2 flex gap-2">
             <button className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700" disabled={saving} type="submit">
               {saving ? 'Đang lưu...' : editingId ? 'Cập nhật lịch học' : 'Tạo lịch học'}
@@ -160,6 +184,24 @@ export default function SchedulesPage() {
           </div>
         </form>
       )}
+
+      {editingId && (() => {
+        const current = schedules.find((item) => item.id === editingId);
+        const classItem = current ? classMap[current.class_id] : null;
+        if (!current) return null;
+        return (
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+            <div className="font-semibold">Đang chỉnh sửa lịch #{current.id}</div>
+            {classItem ? (
+              <div className="mt-1 text-blue-800">
+                Lớp: <span className="font-medium">{classItem.code}</span> · Môn: {classItem.subject} · Học viên: {classItem.student} · Gia sư: {classItem.tutor || '-'}
+              </div>
+            ) : (
+              <div className="mt-1">Class #{current.class_id}</div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
         <table className="min-w-full divide-y divide-gray-200">

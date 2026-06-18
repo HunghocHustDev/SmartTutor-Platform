@@ -22,6 +22,7 @@ from app.models import (
     TutorAssignment,
 )
 from app.repositories import data_repository as repo
+from app.services.schedule_parser import parse_preferred_schedule
 
 
 DAY_LABELS = {
@@ -271,6 +272,7 @@ def subject_to_response(subject: Subject) -> dict:
 
 
 def learning_request_to_response(request: LearningRequest) -> dict:
+    parsed = parse_preferred_schedule(request.preferred_schedule)
     return {
         "id": request.request_id,
         "student_id": request.student_id,
@@ -281,6 +283,13 @@ def learning_request_to_response(request: LearningRequest) -> dict:
         "requested_level": request.requested_level,
         "area": request.preferred_area,
         "preferred_schedule": request.preferred_schedule,
+        "preferred_schedule_display": parsed.to_display() if parsed.days else request.preferred_schedule,
+        "preferred_schedule_parsed": {
+            "days": sorted(parsed.days),
+            "start_time": str(parsed.start_time)[:5] if parsed.start_time else None,
+            "end_time": str(parsed.end_time)[:5] if parsed.end_time else None,
+            "has_time": parsed.has_time(),
+        } if parsed.days else None,
         "expected_fee": _money(request.expected_fee) if request.expected_fee is not None else None,
         "teaching_mode": request.preferred_mode,
         "learning_goal": request.learning_goal,

@@ -191,6 +191,15 @@ If a field shape is not fully verified, it is marked `TODO`.
 - Purpose: update a request.
 - Important response fields: updated learning request object.
 
+### `GET /learning-requests/{id}/suggested-tutors`
+
+- Purpose: get ranked tutor suggestions for a learning request.
+- Important response fields: `request_id`, `subject_id`, `suggestions[]`.
+- Each suggestion includes: `tutor_id`, `full_name`, `phone`, `area`, `experience_years`, `current_classes`, `max_classes`, `score`, `match_reasons[]`.
+- Scoring factors: `experience_years * 10`, `+20` for area match, `+15` for schedule availability match.
+- Access: staff only.
+- Filtering: tutor must be `ACTIVE`, have capability for request subject, have < 10 active classes, and not have an existing active assignment for this request.
+
 ## Assignments
 
 ### `GET /assignments`

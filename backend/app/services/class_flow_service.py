@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -200,4 +200,158 @@ def tuition_summary(db: Session, class_id: int) -> dict:
         "total_fee": _money(summary.total_fee),
         "paid_amount": _money(summary.paid_amount),
         "remaining_amount": max(_money(summary.remaining_amount), 0.0),
+    }
+
+
+def _resolve_session_window(
+    class_start: date | None,
+    class_end: date | None,
+    range_start: date | None,
+    range_end: date | None,
+) -> tuple[date, date]:
+    start = range_start or class_start or date.today()
+    end = range_end or class_end or (start + timedelta(days=90))
+    if end < start:
+        raise HTTPException(status_code=400, detail="range_end must be on or after range_start")
+    return start, end
+
+
+def _iter_candidate_dates(
+    range_start: date,
+    range_end: date,
+    weekday: int,
+) -> list[date]:
+    candidates: list[date] = []
+    cursor = range_start
+    while cursor <= range_end:
+        if cursor.isoweekday() == weekday:
+            candidates.append(cursor)
+        cursor += timedelta(days=1)
+    return candidates
+
+
+def _build_session_plan(
+    study_class,
+    schedules: list[ClassSchedule],
+    existing_sessions: list[LessonSession],
+    range_start: date,
+    range_end: date,
+) -> list[dict]:
+    active_schedules = [item for item in schedules if item.status == "ACTIVE"]
+    if not active_schedules:
+        return []
+    existing_dates = {(item.lesson_date, item.start_time) for item in existing_sessions if item.lesson_date}
+    next_number = max((item.session_number or 0) for item in existing_sessions) + 1
+    plan: list[dict] = []
+    for schedule in sorted(active_schedules, key=lambda item: (item.day_of_week, item.start_time)):
+        eff_from = max(schedule.effective_from or range_start, range_start)
+        eff_to = min(schedule.effective_to or range_end, range_end)
+        if eff_to < eff_from:
+            continue
+        for candidate_date in _iter_candidate_dates(eff_from, eff_to, schedule.day_of_week):
+            if (candidate_date, schedule.start_time) in existing_dates:
+                continue
+            plan.append(
+                {
+                    "schedule_id": schedule.schedule_id,
+                    "session_number": next_number,
+                    "date": candidate_date,
+                    "start_time": schedule.start_time,
+                    "end_time": schedule.end_time,
+                }
+            )
+            existing_dates.add((candidate_date, schedule.start_time))
+            next_number += 1
+    return plan
+
+
+def generate_sessions_from_schedules(
+    db: Session,
+    class_id: int,
+    range_start: date | None = None,
+    range_end: date | None = None,
+) -> dict:
+    study_class = get_class_or_404(db, class_id)
+    start, end = _resolve_session_window(study_class.start_date, study_class.end_date, range_start, range_end)
+    schedules = list(repo.get_schedules(db, class_id=class_id))
+    existing_sessions = list(repo.get_sessions(db, class_id=class_id))
+    plan = _build_session_plan(study_class, schedules, existing_sessions, start, end)
+    if not plan:
+        return {
+            "class_id": class_id,
+            "created_count": 0,
+            "created_session_ids": [],
+            "skipped_existing": True,
+            "range_start": start,
+            "range_end": end,
+        }
+    created_ids: list[int] = []
+    for entry in plan:
+        session = repo.create_session(
+            db,
+            LessonSession(
+                class_id=class_id,
+                schedule_id=entry["schedule_id"],
+                session_number=entry["session_number"],
+                lesson_date=entry["date"],
+                start_time=entry["start_time"],
+                end_time=entry["end_time"],
+                status="SCHEDULED",
+            ),
+        )
+        created_ids.append(session.session_id)
+    repo.commit(db)
+    return {
+        "class_id": class_id,
+        "created_count": len(created_ids),
+        "created_session_ids": created_ids,
+        "skipped_existing": False,
+        "range_start": start,
+        "range_end": end,
+    }
+
+
+def preview_sessions_from_schedules(
+    db: Session,
+    class_id: int,
+    range_start: date | None = None,
+    range_end: date | None = None,
+) -> dict:
+    study_class = get_class_or_404(db, class_id)
+    start, end = _resolve_session_window(study_class.start_date, study_class.end_date, range_start, range_end)
+    schedules = list(repo.get_schedules(db, class_id=class_id))
+    existing_sessions = list(repo.get_sessions(db, class_id=class_id))
+    plan = _build_session_plan(study_class, schedules, existing_sessions, start, end)
+    return {
+        "class_id": class_id,
+        "range_start": start,
+        "range_end": end,
+        "preview_count": len(plan),
+        "preview": [
+            {
+                "schedule_id": entry["schedule_id"],
+                "session_number": entry["session_number"],
+                "date": entry["date"].isoformat(),
+                "start_time": entry["start_time"].strftime("%H:%M") if entry["start_time"] else None,
+                "end_time": entry["end_time"].strftime("%H:%M") if entry["end_time"] else None,
+            }
+            for entry in plan
+        ],
+    }
+
+
+def get_invoice_period(db: Session, class_id: int) -> dict:
+    get_class_or_404(db, class_id)
+    today = date.today()
+    period_start = today.replace(day=1)
+    if today.month == 12:
+        period_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+    else:
+        period_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+    summary = repo.get_class_tuition_summary(db, class_id)
+    completed_sessions = summary.completed_sessions if summary else 0
+    return {
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "completed_sessions": completed_sessions,
     }

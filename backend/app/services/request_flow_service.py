@@ -19,6 +19,12 @@ from app.services.common import (
     get_tutor_or_404,
     learning_request_to_response,
 )
+from app.services.schedule_parser import (
+    ParsedSchedule,
+    build_schedule_display,
+    check_time_overlap,
+    parse_preferred_schedule,
+)
 
 
 def list_learning_requests(db: Session, **filters) -> list[dict]:
@@ -140,3 +146,146 @@ def cancel_assignment(db: Session, assignment_id: int) -> dict:
     repo.update_learning_request(db, assignment.request_id, {"status": "PENDING"})
     repo.commit(db)
     return {"detail": "Assignment canceled"}
+
+
+def suggest_tutors_for_request(db: Session, request_id: int) -> dict:
+    """
+    Suggest candidate tutors for a learning request, ranked by score.
+
+    Scoring factors:
+    - experience_years (higher = better): experience * 10
+    - area match (tutor.area = request.preferred_area): +20
+    - schedule match (real day-of-week + time overlap): +3 to +20
+    """
+    from app.repositories import tutor_repository as tutor_repo
+
+    request = get_learning_request_or_404(db, request_id)
+    parsed = parse_preferred_schedule(request.preferred_schedule)
+
+    candidates = repo.get_candidate_tutors_for_request(
+        db,
+        subject_id=request.subject_id,
+        preferred_area=request.preferred_area,
+        preferred_schedule=request.preferred_schedule,
+        preferred_mode=request.preferred_mode,
+    )
+
+    suggestions = []
+    for row in candidates:
+        row_dict = dict(row.__dict__) if hasattr(row, "__dict__") and not hasattr(row, "_mapping") else (
+            dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+        )
+        tutor_id = row_dict["tutor_id"]
+
+        availabilities = tutor_repo.get_tutor_availabilities(db, tutor_id)
+        availability_display = [
+            {
+                "day_of_week": a.day_of_week,
+                "day_label": {1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7", 7: "CN"}.get(a.day_of_week, str(a.day_of_week)),
+                "start_time": str(a.start_time)[:5],
+                "end_time": str(a.end_time)[:5],
+                "teaching_mode": a.teaching_mode,
+            }
+            for a in availabilities
+            if a.status == "AVAILABLE" and a.teaching_mode in ("BOTH", request.preferred_mode or "OFFLINE")
+        ]
+
+        match_reasons = []
+        schedule_score = 0
+        schedule_level = 0
+
+        if row_dict.get("experience_years", 0) >= 3:
+            match_reasons.append(f"Kinh nghiệm {row_dict['experience_years']} năm")
+        if row_dict.get("area_match"):
+            match_reasons.append("Khu vực phù hợp")
+        if row_dict.get("mode_match"):
+            match_reasons.append("Hình thức phù hợp")
+
+        # Real schedule matching
+        if parsed.has_time() and parsed.days:
+            matching_days = 0
+            total_overlap_minutes = 0
+            for avail in availabilities:
+                if avail.status != "AVAILABLE":
+                    continue
+                if avail.day_of_week not in parsed.days:
+                    continue
+                if avail.teaching_mode not in ("BOTH", request.preferred_mode or "OFFLINE"):
+                    continue
+                has_overlap, overlap_min = check_time_overlap(
+                    parsed.start_time, parsed.end_time,
+                    avail.start_time, avail.end_time,
+                )
+                if has_overlap:
+                    matching_days += 1
+                    total_overlap_minutes += overlap_min
+
+            if matching_days > 0:
+                # Level 3: full coverage on at least one day
+                if matching_days >= 1 and total_overlap_minutes > 0:
+                    req_duration = (
+                        (parsed.end_time.hour * 60 + parsed.end_time.minute)
+                        - (parsed.start_time.hour * 60 + parsed.start_time.minute)
+                    )
+                    if total_overlap_minutes >= req_duration:
+                        schedule_score = 20
+                        schedule_level = 3
+                        match_reasons.append(f"Lịch trùng khớp {matching_days} ngày (đủ giờ)")
+                    else:
+                        schedule_score = 10
+                        schedule_level = 2
+                        match_reasons.append(f"Lịch trùng {matching_days} ngày ({total_overlap_minutes}ph overlap)")
+                if matching_days >= 2:
+                    schedule_score += 2 * (matching_days - 1)
+                    schedule_level = 3
+        elif parsed.days and not parsed.has_time():
+            # Only day match, no time info
+            for avail in availabilities:
+                if avail.status != "AVAILABLE":
+                    continue
+                if avail.day_of_week in parsed.days:
+                    schedule_score = 3
+                    schedule_level = 1
+                    match_reasons.append("Có ngày trùng")
+                    break
+        else:
+            # No parseable schedule - zero schedule points, but still show reason
+            match_reasons.append("Chưa có thông tin lịch cụ thể")
+
+        if row_dict.get("current_classes", 0) < 3:
+            match_reasons.append("Ít lớp đang dạy")
+
+        score = (
+            (row_dict.get("experience_years", 0) or 0) * 10
+            + (20 if row_dict.get("area_match") else 0)
+            + schedule_score
+        )
+
+        suggestions.append({
+            "tutor_id": row_dict["tutor_id"],
+            "full_name": row_dict["full_name"],
+            "phone": row_dict.get("phone"),
+            "area": row_dict.get("tutor_area"),
+            "experience_years": row_dict.get("experience_years", 0),
+            "current_classes": row_dict.get("current_classes", 0),
+            "max_classes": row_dict.get("max_classes", 10),
+            "score": score,
+            "schedule_level": schedule_level,
+            "match_reasons": match_reasons,
+            "availability": availability_display,
+        })
+
+    suggestions.sort(key=lambda x: x["score"], reverse=True)
+
+    return {
+        "request_id": request_id,
+        "subject_id": request.subject_id,
+        "request_schedule": parsed.to_display() if parsed.days else request.preferred_schedule,
+        "parsed_schedule": {
+            "days": sorted(parsed.days),
+            "start_time": str(parsed.start_time)[:5] if parsed.start_time else None,
+            "end_time": str(parsed.end_time)[:5] if parsed.end_time else None,
+            "has_time": parsed.has_time(),
+        } if parsed.days else None,
+        "suggestions": suggestions,
+    }

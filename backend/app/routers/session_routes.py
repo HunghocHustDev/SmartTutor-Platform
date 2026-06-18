@@ -2,6 +2,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentActor, ensure_class_access, ensure_session_access, get_current_actor, require_roles
@@ -13,6 +14,12 @@ from app.routers.class_router_support import apply_class_actor_filters, ensure_s
 
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+class GenerateSessionsRequest(BaseModel):
+    class_id: int = Field(..., gt=0)
+    range_start: Optional[date] = None
+    range_end: Optional[date] = None
 
 
 @router.get("", response_model=list[LessonSessionResponse])
@@ -90,3 +97,31 @@ def update_session_status(
     elif actor.role != "staff":
         raise HTTPException(status_code=403, detail="Only staff or the assigned tutor can update session status")
     return service.update_session_status(db, session_id, payload)
+
+
+@router.post("/generate-from-schedules")
+def generate_sessions_from_schedules(
+    payload: GenerateSessionsRequest,
+    _: CurrentActor = Depends(require_roles("staff")),
+    db: Session = Depends(get_db),
+):
+    return service.generate_sessions_from_schedules(
+        db,
+        class_id=payload.class_id,
+        range_start=payload.range_start,
+        range_end=payload.range_end,
+    )
+
+
+@router.post("/preview-from-schedules")
+def preview_sessions_from_schedules(
+    payload: GenerateSessionsRequest,
+    _: CurrentActor = Depends(require_roles("staff")),
+    db: Session = Depends(get_db),
+):
+    return service.preview_sessions_from_schedules(
+        db,
+        class_id=payload.class_id,
+        range_start=payload.range_start,
+        range_end=payload.range_end,
+    )

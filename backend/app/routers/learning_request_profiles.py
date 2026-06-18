@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentActor, ensure_learning_request_access, get_current_actor, require_roles
 from app.database import get_db
-from app.schemas.entities import DetailMessage, LearningRequestCreate, LearningRequestResponse, LearningRequestUpdate
+from app.schemas.entities import (
+    DetailMessage,
+    LearningRequestCreate,
+    LearningRequestResponse,
+    LearningRequestUpdate,
+    TutorSuggestionResponse,
+)
 from app.services import business_service as service
 
 from app.routers.learning_request_router_support import ensure_learning_request_create_owner, ensure_staff_or_student_learning_request_list
@@ -77,3 +83,21 @@ def delete_learning_request(
     learning_request = service.get_learning_request_or_404(db, request_id)
     ensure_learning_request_access(actor, learning_request)
     return service.cancel_learning_request(db, request_id)
+
+
+@router.get("/{request_id}/suggested-tutors", response_model=TutorSuggestionResponse)
+def suggest_tutors_for_request(
+    request_id: int,
+    actor: CurrentActor = Depends(require_roles("staff")),
+    db: Session = Depends(get_db),
+):
+    """
+    Get suggested tutors for a learning request, ranked by matching score.
+
+    Only staff can access this endpoint.
+    Suggestions are filtered by subject capability and sorted by:
+    - experience_years (higher = better)
+    - area match (+20 points)
+    - schedule availability match (+15 points)
+    """
+    return service.suggest_tutors_for_request(db, request_id)

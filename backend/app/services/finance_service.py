@@ -47,11 +47,19 @@ def create_invoice(db: Session, payload: TuitionInvoiceCreate) -> dict:
     if existing_invoice:
         raise HTTPException(status_code=409, detail="Invoice already exists for this class and period")
     _normalize_invoice_status(payload.status)
-    invoice = repo.call_create_invoice_for_period(
+    from app.models import TuitionInvoice
+    invoice = repo.create_invoice(
         db,
-        class_id=payload.class_id,
-        period_start=payload.period_start,
-        period_end=payload.period_end,
+        TuitionInvoice(
+            class_id=payload.class_id,
+            period_start=payload.period_start,
+            period_end=payload.period_end,
+            completed_sessions=payload.completed_sessions,
+            tuition_fee_per_session=payload.tuition_fee_per_session,
+            amount_due=payload.amount_due,
+            amount_paid=payload.amount_paid,
+            status=payload.status,
+        ),
     )
     repo.commit(db)
     return invoice_to_response(repo.get_invoice(db, invoice.invoice_id))

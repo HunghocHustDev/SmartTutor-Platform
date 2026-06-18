@@ -1185,3 +1185,247 @@
 
 - The repository split is live-verified for the current smoke path, so the next useful work should focus on verification depth rather than more structural churn.
 - Add a lightweight startup/import smoke check plus a few focused negative HTTP tests to catch future compatibility regressions earlier.
+
+## 2026-06-17 - Tutor Suggestion API Feature
+
+### Changed Files
+
+- `backend/app/repositories/request_repository.py`
+- `backend/app/services/request_flow_service.py`
+- `backend/app/routers/learning_request_profiles.py`
+- `backend/app/schemas/entities.py`
+- `backend/app/services/business_service.py`
+- `docs/api_contract.md`
+- `docs/current_status.md`
+
+### What Changed
+
+- Added `GET /learning-requests/{id}/suggested-tutors` endpoint for staff.
+- Scoring factors: `experience_years * 10`, `+20` for area match, `+15` for schedule availability match.
+- Filters: tutor must be `ACTIVE`, have capability for request subject, have < 10 active classes, and not have an existing active assignment for this request.
+- Response includes: `tutor_id`, `full_name`, `phone`, `area`, `experience_years`, `current_classes`, `max_classes`, `score`, `match_reasons[]`.
+- Implemented across repository, service, router, and schema layers.
+
+### Validation Performed
+
+- `uv run python -m compileall backend/app`
+- No linter errors
+
+### Remaining Issues / Next Step
+
+- Live verification against SQL Server pending
+- Frontend UI wiring for the suggestion feature not yet implemented
+
+## 2026-06-17 - Tutor Suggestion Frontend Integration
+
+### Changed Files
+
+- `frontend/src/services/api.js`
+- `frontend/src/pages/LearningRequestsPage.jsx`
+- `docs/current_status.md`
+
+### What Changed
+
+- Added `getSuggestedTutors(requestId)` API function to frontend API client.
+- Added "Gợi ý gia sư" button on LearningRequestsPage (visible only to staff for PENDING requests).
+- Added modal component that displays ranked tutor suggestions with:
+  - Tutor rank number
+  - Full name and score
+  - Experience, area, current/max classes, phone
+  - Match reasons as colored tags
+- Loading and error states handled in the modal.
+
+### Validation Performed
+
+- `npm run build` in frontend/ - passed
+
+### Remaining Issues / Next Step
+
+- Live test against backend API pending
+- Could add "Chọn gia sư này" button to directly assign tutor from suggestion modal
+
+## 2026-06-17 - Auto-Generate Sessions, UX Polish, And Availability Grid
+
+### Changed Files
+
+- `backend/app/services/class_flow_service.py`
+- `backend/app/services/business_service.py`
+- `backend/app/routers/session_routes.py`
+- `frontend/src/services/api.js`
+- `frontend/src/pages/SessionsPage.jsx`
+- `frontend/src/pages/SchedulesPage.jsx`
+- `frontend/src/pages/TutorProfilePage.jsx`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Backend:
+  - Added `POST /sessions/generate-from-schedules` and `POST /sessions/preview-from-schedules` (staff only) so staff can mass-create `LESSON_SESSION` rows from a class's `ACTIVE` `CLASS_SCHEDULE` rows.
+  - `_build_session_plan` respects schedule `effective_from`/`effective_to`, skips existing `(lesson_date, start_time)` pairs, auto-numbers sessions from `MAX(existing) + 1`, and falls back to class `start_date`/`end_date` when no range is supplied.
+- Frontend:
+  - `SessionsPage` now has an "Tạo buổi tự động từ lịch cố định" panel with class picker, optional range, preview table, and confirm action that refreshes the session list after success.
+  - `SessionsPage` replaces `window.prompt` for the `COMPLETED` action with an in-app modal/textarea and adds proper Vietnamese field labels for the create form.
+  - `SchedulesPage` adds proper Vietnamese field labels and a context banner that shows the class/subject/tutor/student of the schedule currently being edited.
+  - `TutorProfilePage` adds a weekly availability grid (7-day x slots) below the availability list, color-coded by `AVAILABLE`/`UNAVAILABLE` status with start-end times.
+
+### Validation Performed
+
+- `uv run python -c "from app.routers import session_routes; from app.services.business_service import generate_sessions_from_schedules, preview_sessions_from_schedules; print('OK')"` - passed
+- `uv run python -c "from app.main import app; print('routes:', len(app.routes))"` - passed (82 routes)
+- Lint check on changed frontend pages - no errors
+
+### Remaining Issues / Next Step
+
+- Live HTTP smoke test for the new session generation endpoints against SQL Server is still pending.
+- The auto-generate panel assumes the class already has at least one `ACTIVE` `CLASS_SCHEDULE` row; consider adding an inline hint when the picked class has no schedule.
+- The weekly availability grid is a flat 7-day row layout; consider a time-axis grid (7 columns x hourly rows) as a future enhancement.
+
+## 2026-06-17 - Suggested-Tutors Subject-Name Match
+
+### Changed Files
+
+- `backend/app/repositories/request_repository.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Replaced the strict `tc.subject_id = :subject_id` capability filter inside `get_candidate_tutors_for_request` with a small `EquivalentSubjects` CTE that derives the effective `subject_name + grade_level` pair from the request subject and matches any other active `SUBJECT` row that resolves to the same effective pair.
+- This unblocks tutor suggestion when the request uses the seed-data subject (e.g. `name='Tiếng Anh' + grade_level='Lớp 11'`) and the tutor capability was stored against a UI-created subject (e.g. `name='Tiếng Anh Lớp 11' + grade_level=NULL`) — both row formats still resolve to the same effective subject and now both count.
+- The fix is defense-in-depth only: it does not change data, does not relax any business filter, and does not touch the `NOT EXISTS active class` exclusion.
+
+### Validation Performed
+
+- `uv run python -m compileall app` - passed
+- Direct SQL probe with the new `EquivalentSubjects` CTE against `subject_id=9` returns both `9` and `20` as expected
+- `GET /learning-requests/25/suggested-tutors` after the fix still returns `suggestions: []` for the demo request, but the cause is now confirmed to be that all three English-11 tutors (1, 2, 6) have at least one active class; the subject mismatch is no longer the blocker
+- Migration to dedupe the two subject name formats in the database was explicitly skipped per user decision; runtime match is sufficient for now.
+
+### Remaining Issues / Next Step
+
+- The duplicate subject formats (`name='Tiếng Anh' + grade_level='Lớp 11'` vs `name='Tiếng Anh Lớp 11' + grade_level=NULL`) still exist in the database. The runtime fix handles them, but a future cleanup batch could normalize the seed data so the two formats collapse to a single id.
+- `/learning-requests/25/suggested-tutors` will only return tutors for the demo request once one of the English-11 tutors has no active class, or once staff explicitly chooses a tutor outside the candidate list.
+
+## 2026-06-17 - Test Seed + SimpleNamespace Decode Fix For Suggested-Tutors
+
+### Changed Files
+
+- `backend/app/services/request_flow_service.py`
+- `sql/seed_test_request_25.sql` (new)
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Fixed a latent decoding bug in `suggest_tutors_for_request` where the candidate loop assumed each row was a raw `Mapping`. After `to_obj(...)` wraps rows in `SimpleNamespace`, the previous fallback `dict(row)` raised `TypeError: 'types.SimpleNamespace' object is not iterable`. The loop now reads `row.__dict__` for `SimpleNamespace` rows and still falls back to `dict(row._mapping)` for raw mapping rows.
+- Added `sql/seed_test_request_25.sql` to seed two fresh tutors (`Lê Minh Anh` tutor_id=901, `Phạm Quốc Đạt` tutor_id=902) that satisfy the request #25 candidate filters:
+  - both ACTIVE with capability for subject_id=9 (`Tiếng Anh Lớp 11`)
+  - both have one `TUTOR_AVAILABILITY` row on day_of_week=2 (T3) 18:30-20:30 OFFLINE in the Cầu Giấy area
+  - both have zero `TUTOR_ASSIGNMENT` rows and zero active classes, so they pass the `NOT EXISTS` filter
+- The script opens with `SET QUOTED_IDENTIFIER ON; SET ANSI_NULLS ON;` so the inserts succeed against filtered indexes on `SUBJECT` / `USER_ACCOUNT`.
+
+### Validation Performed
+
+- `uv run python -m compileall app` - passed
+- `sqlcmd -b -S localhost -d TutorCenterDB -U sa -P 123456 -C -f 65001 -i sql/seed_test_request_25.sql` - passed (4 insert groups, 8 rows total)
+- `GET /learning-requests/25/suggested-tutors` after seed returns:
+  - tutor_id=902 (`Phạm Quốc Đạt`, 8 years) - score 100, reasons include lịch trùng khớp 1 ngày đủ giờ and hình thức OFFLINE
+  - tutor_id=901 (`Lê Minh Anh`, 5 years) - score 90, reasons also include khu vực phù hợp because area string equals `preferred_area` exactly
+
+### Remaining Issues / Next Step
+
+- The two seeded tutors are still in the live DB; clean them up with `DELETE FROM USER_ACCOUNT WHERE account_id IN (901, 902)` when the test scenario is done.
+- The two `SUBJECT` rows for `Tiếng Anh Lớp 11` are still duplicated in the DB; a future cleanup batch should fold them into one id.
+
+## 2026-06-18 - Finance Page: Auto-fill Invoice Fields
+
+### Changed Files
+
+- `frontend/src/services/api.js`
+- `frontend/src/pages/FinancePage.jsx`
+- `backend/app/services/finance_service.py`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added `getClassTuitionSummary(classId)` export to `api.js` calling `GET /classes/{classId}/tuition-summary`.
+- Added `tuitionSummary` state and `handleClassSelect` in `FinancePage` — when staff picks a class in the invoice form, it immediately fetches the tuition summary and pre-fills `completed_sessions`, `tuition_fee_per_session`, and `amount_due` (using `total_fee` = buổi × phí/buổi).
+- A summary card now renders below the class selector inside the invoice form, showing: completed sessions count, fee/buổi, total fee, and remaining debt.
+- Fixed `finance_service.create_invoice` — the previous implementation called `repo.call_create_invoice_for_period(...)` which used the stored procedure to compute snapshot values from SQL, ignoring all client-supplied fields. Now it calls `repo.create_invoice(db, TuitionInvoice(...))` with the full payload values, respecting what the frontend sends.
+- Invoice table now has an extra "Buổi & Phí" column showing session count and fee/buổi, and the money column now shows a "Còn nợ" row (amount_due - amount_paid) in red.
+
+### Validation Performed
+
+- No linter errors in modified files.
+- Backend compile check should pass (the change is a small redirect from stored-proc path to direct-insert path with the same payload shape).
+
+## 2026-06-18 - Finance Page: Auto-fill Invoice Period
+
+### Changed Files
+
+- `backend/app/schemas/entities.py`
+- `backend/app/services/class_flow_service.py`
+- `backend/app/services/business_service.py`
+- `backend/app/routers/class_finance.py`
+- `frontend/src/services/api.js`
+- `frontend/src/pages/FinancePage.jsx`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added `InvoicePeriodResponse` schema with `period_start`, `period_end`, `completed_sessions`.
+- Added `get_invoice_period(db, class_id)` in `class_flow_service` — defaults the period to the current month (ngày 1 → ngày cuối tháng) on the server side, and reads `completed_sessions` from the existing tuition summary aggregate.
+- Added `GET /classes/{id}/invoice-period` endpoint in `class_finance.py` for staff/student/tutor access with the standard class access guard.
+- Re-exported `get_invoice_period` through `business_service` facade.
+- Added `getClassInvoicePeriod(classId)` to the frontend `api.js`.
+- `FinancePage.handleClassSelect` now fires both `getClassTuitionSummary` and `getClassInvoicePeriod` in parallel via `Promise.all`, then auto-fills `period_start` and `period_end` from the period endpoint.
+  - The summary card inside the invoice form now also shows the suggested kỳ range in the header.
+
+## 2026-06-18 - Finance Page: UX Hardening Pass
+
+### Changed Files
+
+- `frontend/src/components/StatusBadge.jsx` (new)
+- `frontend/src/components/ConfirmDialog.jsx` (new)
+- `frontend/src/utils/formatting.js`
+- `frontend/src/pages/FinancePage.jsx`
+- `docs/current_status.md`
+- `docs/agent_worklog.md`
+
+### What Changed
+
+- Added shared `StatusBadge` component that renders invoice / payment / class status as a colored pill (`bg-red-50` for `UNPAID`, amber for `PARTIALLY_PAID`, emerald for `PAID/SUCCESS`, orange for `OVERDUE`, gray for `CANCELED`, purple for `REFUNDED`) and uses the existing `invoiceStatusLabel` / `paymentStatusLabel` from `formatting.js`.
+- Added shared `ConfirmDialog` component (ESC-close, backdrop-click-close, auto-focus cancel button, `danger` variant, `loading` state) so the cancel-invoice and cancel-payment buttons no longer rely on `window.confirm`.
+- Extended `frontend/src/utils/formatting.js` with `paymentStatusLabel`, `PAYMENT_METHOD_LABELS`, and `PAYMENT_METHOD_KEYS` (`BANK_TRANSFER`, `CASH`, `MOMO`, `VNPAY`) so the frontend can localize payment methods without changing the free-form `TUITION_PAYMENT.payment_method` column on the backend.
+- `FinancePage` rewrite to ship all 13 UX improvements in one pass:
+  - replaced mojibake tutor-role banner with plain Vietnamese (`Chỉ staff hoặc học viên sở hữu mới xem được hóa đơn và thanh toán.`)
+  - invoice form: per-field error rows for `class_id`, `period_start`, `period_end` (with `end > start` check), `completed_sessions`, `tuition_fee_per_session`, `amount_due`; realtime duplicate-period detection against existing invoices (excluding `CANCELED`) renders a yellow warning banner and disables submit; `amount_due` is auto-recomputed from `completed_sessions × tuition_fee_per_session` until the user manually edits it (tracked by a small `autoAmount` flag on the form state)
+  - invoice form: removed the `status` selector entirely — new invoices always start as `UNPAID` because the `TUITION_PAYMENT` trigger and service layer own the `UNPAID → PARTIALLY_PAID → PAID` transitions
+  - payment form: per-field errors, auto-default `amount_paid = remaining` on first invoice selection, helper text under the amount input (`Tối đa: ...` or `Vượt còn nợ X đ` in red), submit button is disabled while `paymentInvalid`
+  - payment form: invoice dropdown option now shows ` (đã đủ)` or ` (còn nợ ...)` and disables options that are already fully settled; payment method dropdown renders Vietnamese labels followed by the canonical enum key
+  - both invoice and payment tables now support search (id, class code, status label, period dates, note), sortable column headers via a small `Th` helper, and a count badge on each tab (`Hóa đơn (n)`, `Thanh toán (n)`)
+  - opening the invoice form closes the payment form and vice versa, with per-form error/state reset
+  - after a successful payment, the invoice form (if still open for the same class) refreshes both `/classes/{id}/tuition-summary` and `/classes/{id}/invoice-period` so the realtime summary card stays in sync with the new `amount_paid`
+  - status cells in both tables now render `<StatusBadge>` instead of plain text
+
+### Validation Performed
+
+- `ReadLints` on `FinancePage.jsx`, `StatusBadge.jsx`, `ConfirmDialog.jsx`, and `formatting.js` returned no errors.
+- No backend code was modified — all changes use existing endpoints and rely on the existing service-layer overpayment / duplicate-period / status validation.
+- Manual logic review:
+  - `validateInvoice()` short-circuits before `createInvoice` if any field error is present or `invoiceDuplicate` is non-null.
+  - `paymentInvalid` only fires when an invoice is selected AND amount is ≤ 0 or > remaining.
+  - `pendingCancel` modal is the only way to reach `deleteInvoice` / `deletePayment`; the per-row buttons no longer call `window.confirm`.
+
+### Remaining Issues / Next Step
+
+- Status badge color palette is hard-coded in `StatusBadge.jsx`; if more variants are needed (e.g. `TUTOR_ABSENT` for sessions), extend the `VARIANTS` map there once.
+- The search input is plain text + `localeCompare`; for very large datasets, switching to a server-side filter would be cheaper, but the current dataset fits comfortably in memory.
+- Sortable columns do not yet persist across tab switches; if that becomes important, lift `invoiceSort` / `paymentSort` to `sessionStorage` in a follow-up batch.
+
+### Validation Performed
+
+- No linter errors in modified files.

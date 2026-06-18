@@ -296,7 +296,49 @@ export default function TutorProfilePage() {
             ))}
             {availability.length === 0 && <div className="text-sm text-gray-400">Chưa có lịch rảnh nào.</div>}
           </div>
+
+          <WeeklyAvailabilityGrid availability={availability} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+function WeeklyAvailabilityGrid({ availability }) {
+  const grouped = useMemo(() => {
+    const slots = Array.from({ length: 7 }, () => []);
+    for (const item of availability) {
+      const day = Number(item.day_of_week);
+      if (slots[day - 1]) {
+        slots[day - 1].push(item);
+      }
+    }
+    return slots.map((items) => items.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || '')));
+  }, [availability]);
+
+  return (
+    <div className="rounded-lg border border-gray-200">
+      <div className="grid grid-cols-7 border-b bg-gray-50 text-xs font-semibold uppercase text-gray-500">
+        {Object.entries(DAY_LABELS).map(([value, label]) => (
+          <div key={value} className="border-r px-2 py-2 text-center last:border-r-0">{label}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 min-h-[120px]">
+        {grouped.map((items, idx) => (
+          <div key={idx} className="space-y-1 border-r px-2 py-2 last:border-r-0">
+            {items.length === 0 && <div className="text-xs italic text-gray-300">--</div>}
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className={`rounded px-1.5 py-1 text-xs ${item.status === 'AVAILABLE' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500 line-through'}`}
+                title={`${item.teaching_mode}${item.area ? ' - ' + item.area : ''}`}
+              >
+                <div className="font-medium">{formatTime(item.start_time)} - {formatTime(item.end_time)}</div>
+                <div className="truncate text-[10px]">{item.teaching_mode}</div>
+              </div>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );

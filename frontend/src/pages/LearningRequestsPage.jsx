@@ -3,10 +3,39 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   createLearningRequest,
   deleteLearningRequest,
+  getSuggestedTutors,
   listLearningRequests,
   listSubjects,
   updateLearningRequest,
 } from '../services/api';
+
+const DAY_OPTIONS = [
+  { value: 1, label: 'T2' },
+  { value: 2, label: 'T3' },
+  { value: 3, label: 'T4' },
+  { value: 4, label: 'T5' },
+  { value: 5, label: 'T6' },
+  { value: 6, label: 'T7' },
+  { value: 7, label: 'CN' },
+];
+
+function buildScheduleString(days, startTime, endTime) {
+  if (!days.length) return '';
+  const dayStr = [...days].sort((a, b) => a - b).map((d) => DAY_OPTIONS.find((o) => o.value === d)?.label || d).join(',');
+  if (startTime && endTime) {
+    return `${dayStr} ${startTime}-${endTime}`;
+  }
+  return dayStr;
+}
+
+function parseScheduleToForm(raw) {
+  if (!raw) return { days: [], startTime: '', endTime: '' };
+  const dayMap = { T2: 1, T3: 2, T4: 3, T5: 4, T6: 5, T7: 6, CN: 7 };
+  const match = raw.match(/^([A-Z0-9,]+)\s*(\d{2}:\d{2})?-(\d{2}:\d{2})?$/i);
+  if (!match) return { days: [], startTime: '', endTime: '' };
+  const matched = match[1].split(',').map((d) => dayMap[d?.toUpperCase()?.trim()]).filter(Boolean);
+  return { days: matched, startTime: match[2] || '', endTime: match[3] || '' };
+}
 
 export default function LearningRequestsPage() {
   const { user } = useAuth();
@@ -26,9 +55,19 @@ export default function LearningRequestsPage() {
     requested_level: '',
     area: '',
     teaching_mode: 'OFFLINE',
+    preferred_days: [],
+    preferred_start_time: '',
+    preferred_end_time: '',
     preferred_schedule: '',
     expected_fee: '',
   });
+
+  // Tutor suggestion modal state
+  const [showSuggestion, setShowSuggestion] = useState(false);
+  const [suggestionRequest, setSuggestionRequest] = useState(null);
+  const [suggestedTutors, setSuggestedTutors] = useState([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [suggestionError, setSuggestionError] = useState('');
 
   const isStudent = user?.role === 'student';
   const isStaff = user?.role === 'staff';
@@ -95,6 +134,9 @@ export default function LearningRequestsPage() {
       requested_level: '',
       area: '',
       teaching_mode: 'OFFLINE',
+      preferred_days: [],
+      preferred_start_time: '',
+      preferred_end_time: '',
       preferred_schedule: '',
       expected_fee: '',
     });
@@ -107,16 +149,43 @@ export default function LearningRequestsPage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleDayToggle = (dayValue) => {
+    setFormData((prev) => {
+      const days = prev.preferred_days.includes(dayValue)
+        ? prev.preferred_days.filter((d) => d !== dayValue)
+        : [...prev.preferred_days, dayValue];
+      return {
+        ...prev,
+        preferred_days: days,
+        preferred_schedule: buildScheduleString(days, prev.preferred_start_time, prev.preferred_end_time),
+      };
+    });
+  };
+
+  const handleTimeChange = (field, value) => {
+    setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+      updated.preferred_schedule = buildScheduleString(updated.preferred_days, updated.preferred_start_time, updated.preferred_end_time);
+      return updated;
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setError('');
 
     try {
+      const schedule = buildScheduleString(
+        formData.preferred_days,
+        formData.preferred_start_time,
+        formData.preferred_end_time,
+      );
       const payload = {
         ...formData,
         student_id: Number(user.id),
         subject_id: Number(formData.subject_id),
+        preferred_schedule: schedule || null,
         expected_fee: formData.expected_fee ? Number(formData.expected_fee) : null,
       };
 
@@ -153,7 +222,25 @@ export default function LearningRequestsPage() {
     }
   };
 
+  const handleSuggestTutors = async (requestItem) => {
+    setSuggestionRequest(requestItem);
+    setShowSuggestion(true);
+    setLoadingSuggestions(true);
+    setSuggestionError('');
+    setSuggestedTutors([]);
+
+    try {
+      const data = await getSuggestedTutors(requestItem.id);
+      setSuggestedTutors(data.suggestions || []);
+    } catch (err) {
+      setSuggestionError(err?.message || 'Không tải được gợi ý gia sư');
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
+
   const startEdit = (item) => {
+    const parsed = parseScheduleToForm(item.preferred_schedule);
     setEditingId(item.id);
     setFormData({
       student_id: String(item.student_id || user?.id || ''),
@@ -162,6 +249,9 @@ export default function LearningRequestsPage() {
       requested_level: item.requested_level || '',
       area: item.area || '',
       teaching_mode: item.teaching_mode || 'OFFLINE',
+      preferred_days: parsed.days,
+      preferred_start_time: parsed.startTime,
+      preferred_end_time: parsed.endTime,
       preferred_schedule: item.preferred_schedule || '',
       expected_fee: item.expected_fee ? String(item.expected_fee) : '',
     });
@@ -255,13 +345,54 @@ export default function LearningRequestsPage() {
               className="border border-gray-200 p-2 rounded-lg"
               placeholder="Khu vực"
             />
-            <input
-              name="preferred_schedule"
-              value={formData.preferred_schedule}
-              onChange={handleInputChange}
-              className="border border-gray-200 p-2 rounded-lg"
-              placeholder="Lịch mong muốn"
-            />
+            <div className="border border-gray-200 p-3 rounded-lg">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Ngày học trong tuần</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {DAY_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`cursor-pointer px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                      formData.preferred_days.includes(opt.value)
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={formData.preferred_days.includes(opt.value)}
+                      onChange={() => handleDayToggle(opt.value)}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <label className="text-sm text-gray-500">Từ giờ:</label>
+                  <input
+                    type="time"
+                    className="border border-gray-200 rounded px-2 py-1 text-sm"
+                    value={formData.preferred_start_time}
+                    onChange={(e) => handleTimeChange('preferred_start_time', e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <label className="text-sm text-gray-500">Đến giờ:</label>
+                  <input
+                    type="time"
+                    className="border border-gray-200 rounded px-2 py-1 text-sm"
+                    value={formData.preferred_end_time}
+                    onChange={(e) => handleTimeChange('preferred_end_time', e.target.value)}
+                  />
+                </div>
+              </div>
+              {formData.preferred_schedule && (
+                <p className="mt-2 text-xs text-blue-600 font-mono bg-blue-50 px-2 py-1 rounded inline-block">
+                  {formData.preferred_schedule}
+                </p>
+              )}
+            </div>
             <input
               name="expected_fee"
               value={formData.expected_fee}
@@ -313,12 +444,19 @@ export default function LearningRequestsPage() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.subject || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.target || item.learning_goal || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.area || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.preferred_schedule || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                    {item.preferred_schedule_display || item.preferred_schedule || '-'}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.status}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     {canEdit && (
                       <button className="text-blue-600 hover:text-blue-800 font-medium mr-3" onClick={() => startEdit(item)}>
                         Sửa
+                      </button>
+                    )}
+                    {isStaff && item.status === 'PENDING' && (
+                      <button className="text-green-600 hover:text-green-800 font-medium mr-3" onClick={() => handleSuggestTutors(item)}>
+                        Gợi ý gia sư
                       </button>
                     )}
                     <button
@@ -336,6 +474,96 @@ export default function LearningRequestsPage() {
         </div>
         {filteredRequests.length === 0 && <div className="text-center py-10 text-gray-400">Không có yêu cầu học nào.</div>}
       </div>
+
+      {/* Tutor Suggestion Modal */}
+      {showSuggestion && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Gợi ý gia sư</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Request #{suggestionRequest?.id} - {suggestionRequest?.subject}
+                  </p>
+                </div>
+                <button onClick={() => setShowSuggestion(false)} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+              </div>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {loadingSuggestions ? (
+                <div className="flex justify-center items-center py-10">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                  <span className="ml-3 text-gray-600">Đang tải gợi ý...</span>
+                </div>
+              ) : suggestionError ? (
+                <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700">{suggestionError}</div>
+              ) : suggestedTutors.length === 0 ? (
+                <div className="text-center py-10 text-gray-400">
+                  Không có gia sư phù hợp cho yêu cầu này.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {suggestedTutors.map((tutor, index) => (
+                    <div key={tutor.tutor_id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-sm font-bold">
+                              {index + 1}
+                            </span>
+                            <h3 className="font-semibold text-gray-900">{tutor.full_name}</h3>
+                            <span className={`text-sm px-2 py-0.5 rounded font-medium ${
+                              tutor.schedule_level >= 3 ? 'bg-green-100 text-green-700' :
+                              tutor.schedule_level >= 2 ? 'bg-blue-100 text-blue-700' :
+                              tutor.schedule_level === 1 ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              Score: {tutor.score}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-600">
+                            <div>Kinh nghiệm: <span className="font-medium">{tutor.experience_years} năm</span></div>
+                            <div>Khu vực: <span className="font-medium">{tutor.area || 'Không rõ'}</span></div>
+                            <div>Lớp hiện tại: <span className="font-medium">{tutor.current_classes}/{tutor.max_classes}</span></div>
+                            <div>Điện thoại: <span className="font-medium">{tutor.phone || 'Không có'}</span></div>
+                          </div>
+                          {tutor.availability && tutor.availability.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-xs text-gray-500 mb-1 font-medium">Lịch rảnh:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {tutor.availability.map((a, i) => (
+                                  <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                                    {a.day_label} {a.start_time}-{a.end_time} {a.teaching_mode !== 'BOTH' ? `(${a.teaching_mode})` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {tutor.match_reasons && tutor.match_reasons.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {tutor.match_reasons.map((reason, i) => (
+                                <span key={i} className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">
+                                  {reason}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowSuggestion(false)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

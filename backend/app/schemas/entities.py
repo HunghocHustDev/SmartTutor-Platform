@@ -468,6 +468,12 @@ class TuitionSummaryResponse(BaseModel):
     remaining_amount: float
 
 
+class InvoicePeriodResponse(BaseModel):
+    period_start: str
+    period_end: str
+    completed_sessions: int
+
+
 class DashboardSummaryResponse(BaseModel):
     total_students: int
     total_tutors: int
@@ -477,3 +483,21 @@ class DashboardSummaryResponse(BaseModel):
     unpaid_invoices: int
     partially_paid_invoices: int
     successful_payments: int
+
+
+class TutorSuggestionItem(BaseModel):
+    tutor_id: int
+    full_name: str
+    phone: Optional[str] = None
+    area: Optional[str] = None
+    experience_years: int = 0
+    current_classes: int = 0
+    max_classes: int = 10
+    score: int = 0
+    match_reasons: list[str] = []
+
+
+class TutorSuggestionResponse(BaseModel):
+    request_id: int
+    subject_id: int
+    suggestions: list[TutorSuggestionItem]

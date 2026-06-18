@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { MagnifyingGlassIcon, FunnelIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext';
-import { createClass, deleteClass, listAssignments, listClasses, updateClass } from '../services/api';
+import { createClass, deleteClass, listAssignments, listClasses, listLearningRequests, updateClass } from '../services/api';
 import { formatDate } from '../utils/formatting';
 
 const statusConfig = {
@@ -24,6 +24,7 @@ export default function ClassesPage() {
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [assignments, setAssignments] = useState([]);
+  const [requests, setRequests] = useState([]);
   const [formData, setFormData] = useState({
     assignment_id: '',
     class_code: '',
@@ -68,6 +69,7 @@ export default function ClassesPage() {
       });
     if (user?.role === 'staff') {
       listAssignments({ status: 'ASSIGNED' }).then((data) => active && setAssignments(Array.isArray(data) ? data : [])).catch(() => {});
+      listLearningRequests().then((data) => active && setRequests(Array.isArray(data) ? data : [])).catch(() => {});
     }
     return () => {
       active = false;
@@ -89,6 +91,8 @@ export default function ClassesPage() {
     }
     return result;
   }, [classes, searchTerm, statusFilter]);
+
+  const requestMap = useMemo(() => Object.fromEntries(requests.map((r) => [r.id, r])), [requests]);
 
   const stats = useMemo(() => ({
     total: classes.length,
@@ -249,35 +253,146 @@ export default function ClassesPage() {
       </div>
 
       {showForm && canManage && (
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 rounded-xl bg-white p-6 shadow-sm md:grid-cols-2">
+        <form onSubmit={handleSubmit} className="rounded-xl bg-white p-6 shadow-sm border border-gray-100 space-y-4">
           {!editingId && (
-            <select className="rounded-lg border border-gray-200 px-3 py-2" value={formData.assignment_id} onChange={(e) => setFormData((prev) => ({ ...prev, assignment_id: e.target.value }))} required>
-              <option value="">Chọn assignment ASSIGNED</option>
-              {assignments.map((item) => (
-                <option key={item.id} value={item.id}>Assignment #{item.id} - request #{item.request_id} - tutor #{item.tutor_id}</option>
-              ))}
-            </select>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Phân công <span className="text-red-500">*</span>
+              </label>
+              <select
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                value={formData.assignment_id}
+                onChange={(e) => setFormData((prev) => ({ ...prev, assignment_id: e.target.value }))}
+                required
+              >
+                <option value="">-- Chọn phân công đã được assign --</option>
+                {assignments.map((item) => {
+                  const req = requestMap[item.request_id];
+                  return (
+                    <option key={item.id} value={item.id}>
+                      #{item.id} · {req?.student || `HS #${item.request_id}`} · {req?.subject || `Môn #${req?.subject_id || item.request_id}`} · {req?.area || 'Khu vực khác'}
+                    </option>
+                  );
+                })}
+              </select>
+              {formData.assignment_id && requestMap[formData.assignment_id] && (() => {
+                const info = requestMap[formData.assignment_id];
+                return (
+                  <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100 text-sm">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      <div><span className="text-gray-500">Học sinh:</span> <span className="font-medium">{info.student || '-'}</span></div>
+                      <div><span className="text-gray-500">Gia sư:</span> <span className="font-medium">{info.tutor || `GS #${info.assignment_tutor_id || info.tutor_id || '-'}`}</span></div>
+                      <div><span className="text-gray-500">Môn:</span> <span className="font-medium">{info.subject || '-'}</span></div>
+                      <div><span className="text-gray-500">Khu vực:</span> <span className="font-medium">{info.area || '-'}</span></div>
+                      <div><span className="text-gray-500">Hình thức:</span> <span className="font-medium">{info.teaching_mode || 'OFFLINE'}</span></div>
+                      {info.expected_fee && <div><span className="text-gray-500">Học phí mong muốn:</span> <span className="font-medium">{Number(info.expected_fee).toLocaleString()}đ/buổi</span></div>}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           )}
-          <input className="rounded-lg border border-gray-200 px-3 py-2" placeholder="Mã lớp" value={formData.class_code} onChange={(e) => setFormData((prev) => ({ ...prev, class_code: e.target.value }))} />
-          <input className="rounded-lg border border-gray-200 px-3 py-2" type="number" placeholder="Học phí / buổi" value={formData.tuition_fee_per_session} onChange={(e) => setFormData((prev) => ({ ...prev, tuition_fee_per_session: e.target.value }))} required />
-          <select className="rounded-lg border border-gray-200 px-3 py-2" value={formData.teaching_mode} onChange={(e) => setFormData((prev) => ({ ...prev, teaching_mode: e.target.value }))}>
-            <option value="OFFLINE">OFFLINE</option>
-            <option value="ONLINE">ONLINE</option>
-          </select>
-          <input className="rounded-lg border border-gray-200 px-3 py-2" placeholder="Địa điểm" value={formData.location} onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))} />
-          <input className="rounded-lg border border-gray-200 px-3 py-2" type="date" value={formData.start_date} onChange={(e) => setFormData((prev) => ({ ...prev, start_date: e.target.value }))} required />
-          <input className="rounded-lg border border-gray-200 px-3 py-2" type="date" value={formData.end_date} onChange={(e) => setFormData((prev) => ({ ...prev, end_date: e.target.value }))} />
-          <select className="rounded-lg border border-gray-200 px-3 py-2" value={formData.status} onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}>
-            <option value="ACTIVE">ACTIVE</option>
-            <option value="PAUSED">PAUSED</option>
-            <option value="COMPLETED">COMPLETED</option>
-            <option value="CANCELED">CANCELED</option>
-          </select>
-          <div className="md:col-span-2 flex gap-2">
-            <button className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700" disabled={saving} type="submit">
-              {saving ? 'Đang lưu...' : editingId ? 'Cập nhật lớp' : 'Tạo lớp'}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Mã lớp <span className="text-gray-400 font-normal">(tự sinh nếu bỏ trống)</span>
+              </label>
+              <input
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                placeholder="VD: LOP-001"
+                value={formData.class_code}
+                onChange={(e) => setFormData((prev) => ({ ...prev, class_code: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Học phí / buổi <span className="text-red-500">*</span> <span className="text-gray-400 font-normal">(VNĐ)</span>
+              </label>
+              <input
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                type="number"
+                placeholder="VD: 150000"
+                value={formData.tuition_fee_per_session}
+                onChange={(e) => setFormData((prev) => ({ ...prev, tuition_fee_per_session: e.target.value }))}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Hình thức dạy</label>
+              <select
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                value={formData.teaching_mode}
+                onChange={(e) => setFormData((prev) => ({ ...prev, teaching_mode: e.target.value }))}
+              >
+                <option value="OFFLINE">Offline (Gặp trực tiếp)</option>
+                <option value="ONLINE">Online (Trực tuyến)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Địa điểm <span className="text-gray-400 font-normal">(nếu offline)</span>
+              </label>
+              <input
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                placeholder="VD: 123 Nguyễn Trãi, Quận 1"
+                value={formData.location}
+                onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Ngày bắt đầu <span className="text-red-500">*</span>
+              </label>
+              <input
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                type="date"
+                value={formData.start_date}
+                onChange={(e) => setFormData((prev) => ({ ...prev, start_date: e.target.value }))}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Ngày kết thúc <span className="text-gray-400 font-normal">(tùy chọn)</span>
+              </label>
+              <input
+                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                type="date"
+                value={formData.end_date}
+                onChange={(e) => setFormData((prev) => ({ ...prev, end_date: e.target.value }))}
+              />
+            </div>
+            {editingId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Trạng thái</label>
+                <select
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                  value={formData.status}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                >
+                  <option value="ACTIVE">ACTIVE - Đang diễn ra</option>
+                  <option value="PAUSED">PAUSED - Tạm dừng</option>
+                  <option value="COMPLETED">COMPLETED - Hoàn thành</option>
+                  <option value="CANCELED">CANCELED - Đã hủy</option>
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              className="rounded-lg bg-green-600 px-6 py-2.5 text-white font-medium hover:bg-green-700 disabled:opacity-50"
+              disabled={saving}
+              type="submit"
+            >
+              {saving ? 'Đang lưu...' : editingId ? 'Cập nhật lớp' : 'Tạo lớp học'}
             </button>
-            <button className="rounded-lg bg-gray-200 px-4 py-2 text-gray-700 hover:bg-gray-300" type="button" onClick={() => { setShowForm(false); setEditingId(null); }}>
+            <button
+              className="rounded-lg bg-gray-200 px-6 py-2.5 text-gray-700 font-medium hover:bg-gray-300"
+              type="button"
+              onClick={() => { setShowForm(false); setEditingId(null); }}
+            >
               Hủy
             </button>
           </div>

@@ -299,3 +299,106 @@ def update_assignment(db: Session, assignment_id: int, data: dict) -> None:
 
 def cancel_assignment(db: Session, assignment_id: int) -> None:
     update_assignment(db, assignment_id, {"status": "CANCELED"})
+
+
+def get_candidate_tutors_for_request(
+    db: Session,
+    subject_id: int,
+    preferred_area: Optional[str] = None,
+    preferred_schedule: Optional[str] = None,
+    preferred_mode: Optional[str] = None,
+) -> list[dict]:
+    """
+    Get candidate tutors for a learning request, filtered and scored.
+
+    Matching now uses real day-of-week + time overlap:
+    - schedule_level 0 = no parseable schedule info (0 pts)
+    - schedule_level 1 = same day(s) match, time overlaps (3 pts)
+    - schedule_level 2 = same day(s) match, full time coverage (10 pts)
+    - schedule_level 3 = same day(s) match, full time + multiple days (12+ pts)
+    """
+    rows = fetch_all(
+        db,
+        f"""
+        WITH TutorWorkload AS (
+            SELECT
+                ta.tutor_id,
+                COUNT(sc.class_id) AS current_classes
+            FROM TUTOR_ASSIGNMENT ta
+            LEFT JOIN STUDY_CLASS sc ON sc.assignment_id = ta.assignment_id AND sc.status = 'ACTIVE'
+            WHERE ta.status = 'ASSIGNED'
+            GROUP BY ta.tutor_id
+        ),
+        RequestSubject AS (
+            SELECT
+                s.subject_id,
+                s.subject_name AS req_name,
+                s.grade_level AS req_level
+            FROM SUBJECT s
+            WHERE s.subject_id = :subject_id
+        ),
+        EquivalentSubjects AS (
+            SELECT s2.subject_id
+            FROM SUBJECT s2
+            CROSS JOIN RequestSubject rs
+            WHERE s2.status <> 'INACTIVE'
+              AND (
+                  s2.subject_id = rs.subject_id
+                  -- exact composite key match
+                  OR LOWER(LTRIM(RTRIM(ISNULL(s2.subject_name,'')))) = LOWER(LTRIM(RTRIM(rs.req_name)))
+                     AND LOWER(LTRIM(RTRIM(ISNULL(s2.grade_level,'')))) = LOWER(LTRIM(RTRIM(ISNULL(rs.req_level,''))))
+                  -- legacy split form (name + grade_level) vs combined form (name contains grade_level, grade_level null)
+                  OR (LOWER(LTRIM(RTRIM(ISNULL(s2.subject_name,'')))) = LOWER(LTRIM(RTRIM(rs.req_name + ' ' + ISNULL(rs.req_level,''))))
+                      AND ISNULL(s2.grade_level,'') = ''
+                      AND ISNULL(rs.req_level,'') <> '')
+                  -- combined form (name contains grade_level, grade_level null) vs legacy split form
+                  OR (LOWER(LTRIM(RTRIM(ISNULL(s2.subject_name,'')))) = LOWER(LTRIM(RTRIM(rs.req_name)))
+                      AND ISNULL(s2.grade_level,'') = ''
+                      AND LOWER(LTRIM(RTRIM(rs.req_name))) + ' ' + LOWER(LTRIM(RTRIM(ISNULL(rs.req_level,'')))) = LOWER(LTRIM(RTRIM(s2.subject_name + ' ' + ISNULL(s2.grade_level,'')))))
+              )
+        )
+        SELECT
+            t.tutor_id,
+            t.full_name,
+            t.phone,
+            t.area AS tutor_area,
+            t.experience_years,
+            t.contact_email,
+            COALESCE(twl.current_classes, 0) AS current_classes,
+            10 AS max_classes,
+            CASE WHEN t.area = :preferred_area THEN 1 ELSE 0 END AS area_match,
+            CASE
+                WHEN :preferred_mode IS NULL THEN 1
+                WHEN EXISTS (
+                    SELECT 1 FROM TUTOR_AVAILABILITY ta2
+                    WHERE ta2.tutor_id = t.tutor_id
+                      AND ta2.status = 'AVAILABLE'
+                      AND ta2.teaching_mode IN ('BOTH', :preferred_mode)
+                ) THEN 1
+                ELSE 0
+            END AS mode_match
+        FROM TUTOR t
+        INNER JOIN TUTOR_CAPABILITY tc ON tc.tutor_id = t.tutor_id
+        INNER JOIN EquivalentSubjects es ON es.subject_id = tc.subject_id
+        LEFT JOIN TutorWorkload twl ON twl.tutor_id = t.tutor_id
+        WHERE t.status = 'ACTIVE'
+          AND COALESCE(twl.current_classes, 0) < 10
+          AND NOT EXISTS (
+              SELECT 1 FROM TUTOR_ASSIGNMENT ta
+              WHERE ta.tutor_id = t.tutor_id
+                AND ta.status = 'ASSIGNED'
+                AND EXISTS (
+                    SELECT 1 FROM STUDY_CLASS sc
+                    WHERE sc.assignment_id = ta.assignment_id
+                      AND sc.status = 'ACTIVE'
+                )
+          )
+        """,
+        {
+            "subject_id": subject_id,
+            "preferred_area": preferred_area,
+            "preferred_schedule": preferred_schedule,
+            "preferred_mode": preferred_mode,
+        },
+    )
+    return rows

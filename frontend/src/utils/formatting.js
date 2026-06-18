@@ -39,29 +39,38 @@ export function formatTime(value) {
   return String(value).slice(0, 5);
 }
 
-export function learningRequestStatusLabel(status) {
-  return {
-    PENDING: 'Chờ xử lý',
-    ASSIGNED: 'Đã phân công',
-    CANCELED: 'Đã hủy',
-  }[status] || status;
-}
+export const learningRequestStatusLabel = (status) => ({
+  PENDING: 'Chờ xử lý',
+  ASSIGNED: 'Đã phân công',
+  CANCELED: 'Đã hủy',
+}[status] || status);
 
-export function classStatusLabel(status) {
-  return {
-    ACTIVE: 'Đang diễn ra',
-    PAUSED: 'Tạm dừng',
-    COMPLETED: 'Hoàn thành',
-    CANCELED: 'Đã hủy',
-  }[status] || status;
-}
+export const classStatusLabel = (status) => ({
+  ACTIVE: 'Đang diễn ra',
+  PAUSED: 'Tạm dừng',
+  COMPLETED: 'Hoàn thành',
+  CANCELED: 'Đã hủy',
+}[status] || status);
 
-export function invoiceStatusLabel(status) {
-  return {
-    PAID: 'Đã thanh toán',
-    UNPAID: 'Chưa thanh toán',
-    PARTIALLY_PAID: 'Thanh toán một phần',
-    OVERDUE: 'Quá hạn',
-    CANCELED: 'Đã hủy',
-  }[status] || status;
-}
+export const invoiceStatusLabel = (status) => ({
+  PAID: 'Đã thanh toán',
+  UNPAID: 'Chưa thanh toán',
+  PARTIALLY_PAID: 'Thanh toán một phần',
+  OVERDUE: 'Quá hạn',
+  CANCELED: 'Đã hủy',
+}[status] || status);
+
+export const paymentStatusLabel = (status) => ({
+  SUCCESS: 'Thành công',
+  CANCELED: 'Đã hủy',
+  REFUNDED: 'Đã hoàn tiền',
+}[status] || status);
+
+export const PAYMENT_METHOD_LABELS = {
+  BANK_TRANSFER: 'Chuyển khoản',
+  CASH: 'Tiền mặt',
+  MOMO: 'Ví MoMo',
+  VNPAY: 'VNPay',
+};
+
+export const PAYMENT_METHOD_KEYS = ['BANK_TRANSFER', 'CASH', 'MOMO', 'VNPAY'];

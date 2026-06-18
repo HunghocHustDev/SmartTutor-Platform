@@ -129,6 +129,8 @@ export const updateClass = (id, payload) => request(`/classes/${id}`, {
   body: JSON.stringify(payload),
 });
 export const deleteClass = (id) => request(`/classes/${id}`, { method: 'DELETE' });
+export const getClassTuitionSummary = (classId) => request(`/classes/${classId}/tuition-summary`);
+export const getClassInvoicePeriod = (classId) => request(`/classes/${classId}/invoice-period`);
 
 export const listLearningRequests = (filters = {}) => request(`/learning-requests${buildQueryString(filters)}`);
 export const createLearningRequest = (payload) => request('/learning-requests', {
@@ -140,6 +142,8 @@ export const updateLearningRequest = (id, payload) => request(`/learning-request
   body: JSON.stringify(payload),
 });
 export const deleteLearningRequest = (id) => request(`/learning-requests/${id}`, { method: 'DELETE' });
+
+export const getSuggestedTutors = (requestId) => request(`/learning-requests/${requestId}/suggested-tutors`);
 
 export const listSessions = (filters = {}) => request(`/sessions${buildQueryString(filters)}`);
 export const createSession = (payload) => request('/sessions', {
@@ -155,6 +159,14 @@ export const updateSessionStatus = (id, payload) => request(`/sessions/${id}/sta
   body: JSON.stringify(payload),
 });
 export const deleteSession = (id) => request(`/sessions/${id}`, { method: 'DELETE' });
+export const previewSessionsFromSchedules = (payload) => request('/sessions/preview-from-schedules', {
+  method: 'POST',
+  body: JSON.stringify(payload),
+});
+export const generateSessionsFromSchedules = (payload) => request('/sessions/generate-from-schedules', {
+  method: 'POST',
+  body: JSON.stringify(payload),
+});
 
 export const listAssignments = (filters = {}) => request(`/assignments${buildQueryString(filters)}`);
 export const createAssignment = (payload) => request('/assignments', {
@@ -228,6 +240,8 @@ export const api = {
   createClass,
   updateClass,
   deleteClass,
+  getClassTuitionSummary,
+  getClassInvoicePeriod,
   listLearningRequests,
   createLearningRequest,
   updateLearningRequest,
