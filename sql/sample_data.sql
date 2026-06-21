@@ -254,9 +254,96 @@ INSERT INTO STUDY_CLASS (class_id, assignment_id, class_code, tuition_fee_per_se
 SET IDENTITY_INSERT STUDY_CLASS OFF;
 GO
 
--- ========== SCHEDULES & SESSIONS (mẫu) ==========
--- ... (giữ nguyên hoặc rút gọn, không ảnh hưởng phân công)
--- Bạn có thể giữ lại các insert CLASS_SCHEDULE, LESSON_SESSION, INVOICE, PAYMENT như cũ.
+-- ========== CLASS SCHEDULES (mỗi lớp 1-2 buổi/tuần) ==========
+SET IDENTITY_INSERT CLASS_SCHEDULE ON;
+INSERT INTO CLASS_SCHEDULE (schedule_id, class_id, day_of_week, start_time, end_time, effective_from, effective_to, status, note) VALUES
+-- Class 1 (Toán 12, offline Cầu Giấy, T2+T4 19h-21h)
+(1, 1, 1, '19:00', '21:00', '2026-04-15', NULL, 'ACTIVE', N'Tối thứ 2'),
+(2, 1, 3, '19:00', '21:00', '2026-04-15', NULL, 'ACTIVE', N'Tối thứ 4'),
+
+-- Class 2 (Lý 10, offline Hà Đông, T3+T5 19h-20h30)
+(3, 2, 2, '19:00', '20:30', '2026-05-01', NULL, 'ACTIVE', N'Tối thứ 3'),
+(4, 2, 4, '19:00', '20:30', '2026-05-01', NULL, 'ACTIVE', N'Tối thứ 5'),
+
+-- Class 3 (Văn 9, offline Thanh Xuân, T2+T5 18h-20h) – đã kết thúc
+(5, 3, 1, '18:00', '20:00', '2026-05-05', '2026-06-20', 'INACTIVE', N'Thứ 2'),
+(6, 3, 4, '18:00', '20:00', '2026-05-05', '2026-06-20', 'INACTIVE', N'Thứ 5'),
+
+-- Class 4 (Anh 11, online, T3+T6 20h-21h30)
+(7, 4, 2, '20:00', '21:30', '2026-05-10', NULL, 'ACTIVE', N'Thứ 3 online'),
+(8, 4, 5, '20:00', '21:30', '2026-05-10', NULL, 'ACTIVE', N'Thứ 6 online');
+SET IDENTITY_INSERT CLASS_SCHEDULE OFF;
+GO
+
+-- ========== LESSON SESSIONS (mỗi lớp có 4-8 buổi, xen kẽ quá khứ & tương lai) ==========
+SET IDENTITY_INSERT LESSON_SESSION ON;
+INSERT INTO LESSON_SESSION (session_id, class_id, schedule_id, session_number, lesson_date, start_time, end_time, status, content_note) VALUES
+-- === Class 1 (Toán 12) ===
+(1, 1, 1, 1, '2026-04-20', '19:00', '21:00', 'COMPLETED', N'Khảo sát & lập kế hoạch'),
+(2, 1, 2, 2, '2026-04-22', '19:00', '21:00', 'COMPLETED', N'Hàm số & đồ thị'),
+(3, 1, 1, 3, '2026-04-27', '19:00', '21:00', 'COMPLETED', N'Cực trị'),
+(4, 1, 2, 4, '2026-04-29', '19:00', '21:00', 'COMPLETED', N'Đạo hàm ứng dụng'),
+(5, 1, 1, 5, '2026-05-04', '19:00', '21:00', 'COMPLETED', N'Hàm mũ & logarit'),
+(6, 1, 2, 6, '2026-05-06', '19:00', '21:00', 'COMPLETED', N'Luyện đề số 1'),
+(7, 1, 1, 7, '2026-06-16', '19:00', '21:00', 'SCHEDULED', NULL),
+(8, 1, 2, 8, '2026-06-18', '19:00', '21:00', 'SCHEDULED', NULL),
+(9, 1, 1, 9, '2026-06-23', '19:00', '21:00', 'SCHEDULED', NULL),
+(10,1, 2,10, '2026-06-25', '19:00', '21:00', 'SCHEDULED', NULL),
+
+-- === Class 2 (Lý 10) ===
+(11,2, 3, 1, '2026-05-05', '19:00', '20:30', 'COMPLETED', N'Chuyển động thẳng đều'),
+(12,2, 4, 2, '2026-05-07', '19:00', '20:30', 'COMPLETED', N'Gia tốc & pt chuyển động'),
+(13,2, 3, 3, '2026-05-12', '19:00', '20:30', 'COMPLETED', N'Bài tập tổng hợp'),
+(14,2, 4, 4, '2026-06-17', '19:00', '20:30', 'SCHEDULED', NULL),
+(15,2, 3, 5, '2026-06-19', '19:00', '20:30', 'SCHEDULED', NULL),
+(16,2, 4, 6, '2026-06-24', '19:00', '20:30', 'SCHEDULED', NULL),
+
+-- === Class 3 (Văn 9) – tất cả COMPLETED ===
+(17,3, 5, 1, '2026-05-11', '18:00', '20:00', 'COMPLETED', N'Mở bài & kết bài'),
+(18,3, 6, 2, '2026-05-14', '18:00', '20:00', 'COMPLETED', N'NLXH'),
+(19,3, 5, 3, '2026-05-18', '18:00', '20:00', 'COMPLETED', N'NLVH'),
+(20,3, 6, 4, '2026-05-21', '18:00', '20:00', 'COMPLETED', N'Phân tích tác phẩm'),
+(21,3, 5, 5, '2026-05-25', '18:00', '20:00', 'COMPLETED', N'Chữa đề minh họa'),
+(22,3, 6, 6, '2026-05-28', '18:00', '20:00', 'COMPLETED', N'Tổng ôn'),
+(23,3, 5, 7, '2026-06-01', '18:00', '20:00', 'COMPLETED', N'Thi thử lần 1'),
+(24,3, 6, 8, '2026-06-04', '18:00', '20:00', 'COMPLETED', N'Chữa đề thi thử'),
+
+-- === Class 4 (Anh 11) ===
+(25,4, 7, 1, '2026-05-12', '20:00', '21:30', 'COMPLETED', N'Kiểm tra năng lực'),
+(26,4, 8, 2, '2026-05-15', '20:00', '21:30', 'COMPLETED', N'Thì hiện tại & quá khứ'),
+(27,4, 7, 3, '2026-05-19', '20:00', '21:30', 'COMPLETED', N'Luyện nghe'),
+(28,4, 8, 4, '2026-06-16', '20:00', '21:30', 'SCHEDULED', NULL),
+(29,4, 7, 5, '2026-06-19', '20:00', '21:30', 'SCHEDULED', NULL),
+(30,4, 8, 6, '2026-06-23', '20:00', '21:30', 'SCHEDULED', NULL);
+SET IDENTITY_INSERT LESSON_SESSION OFF;
+GO
+
+-- ========== INVOICES (dựa trên buổi COMPLETED) ==========
+SET IDENTITY_INSERT TUITION_INVOICE ON;
+INSERT INTO TUITION_INVOICE (invoice_id, class_id, period_start, period_end, completed_sessions, tuition_fee_per_session, amount_due, amount_paid, status) VALUES
+-- Class 1: 6 buổi hoàn thành (tháng 4+5), 300k/buổi => 1.800.000
+(1, 1, '2026-04-01', '2026-05-31', 6, 300000, 1800000, 1200000, 'PARTIALLY_PAID'),
+-- Class 2: 3 buổi hoàn thành (tháng 5), 220k/buổi => 660.000
+(2, 2, '2026-05-01', '2026-05-31', 3, 220000, 660000, 660000, 'PAID'),
+-- Class 3: 8 buổi (tháng 5+6), 250k/buổi => 2.000.000
+(3, 3, '2026-05-01', '2026-06-30', 8, 250000, 2000000, 2000000, 'PAID'),
+-- Class 4: 3 buổi (tháng 5+6), 200k/buổi => 600.000
+(4, 4, '2026-05-01', '2026-06-30', 3, 200000, 600000, 400000, 'PARTIALLY_PAID');
+SET IDENTITY_INSERT TUITION_INVOICE OFF;
+GO
+
+-- ========== PAYMENTS (một vài giao dịch mẫu) ==========
+SET IDENTITY_INSERT TUITION_PAYMENT ON;
+INSERT INTO TUITION_PAYMENT (payment_id, invoice_id, staff_id, payment_date, amount_paid, payment_method, note, status) VALUES
+(1, 1, 1, DATEADD(DAY, -20, SYSUTCDATETIME()), 800000,  N'BANK_TRANSFER', N'Thanh toán đợt 1', 'SUCCESS'),
+(2, 1, 2, DATEADD(DAY, -5,  SYSUTCDATETIME()), 400000,  N'CASH',          N'Thanh toán đợt 2', 'SUCCESS'),
+(3, 2, 2, DATEADD(DAY, -15, SYSUTCDATETIME()), 660000,  N'BANK_TRANSFER', N'Thanh toán đủ',    'SUCCESS'),
+(4, 3, 1, DATEADD(DAY, -10, SYSUTCDATETIME()), 2000000, N'CASH',          N'Thanh toán trọn gói','SUCCESS'),
+(5, 4, 2, DATEADD(DAY, -3,  SYSUTCDATETIME()), 400000,  N'EWALLET',       N'Thanh toán 2 buổi', 'SUCCESS'),
+-- Một giao dịch refund để test
+(6, 4, 1, DATEADD(DAY, -1,  SYSUTCDATETIME()), 50000,   N'EWALLET',       N'Hoàn lại thừa',    'REFUNDED');
+SET IDENTITY_INSERT TUITION_PAYMENT OFF;
+GO
 
 -- ========== VERIFICATION ==========
 SELECT '--- USERS ---' AS Info;
