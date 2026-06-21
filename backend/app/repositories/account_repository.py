@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import Staff, UserAccount
 from app.repositories.repository_common import fetch_one, to_obj
 
-
+#Truy vấn thông tin tài khoản dựa trên địa chỉ email.
 def get_user_by_email(db: Session, email: str) -> Optional[UserAccount]:
     return fetch_one(
         db,
@@ -18,7 +18,7 @@ def get_user_by_email(db: Session, email: str) -> Optional[UserAccount]:
         {"email": email},
     )
 
-
+#Truy vấn thông tin tài khoản dựa trên tên đăng nhập
 def get_user_by_username(db: Session, username: str) -> Optional[UserAccount]:
     return fetch_one(
         db,
@@ -30,7 +30,7 @@ def get_user_by_username(db: Session, username: str) -> Optional[UserAccount]:
         {"username": username},
     )
 
-
+#Truy vấn thông tin tài khoản dựa trên account_id
 def get_user_by_id(db: Session, account_id: int) -> Optional[UserAccount]:
     return fetch_one(
         db,
@@ -42,7 +42,7 @@ def get_user_by_id(db: Session, account_id: int) -> Optional[UserAccount]:
         {"account_id": account_id},
     )
 
-
+#Tạo mới một tài khoản
 def create_user(db: Session, user: UserAccount) -> UserAccount:
     row = db.execute(
         text(
@@ -82,7 +82,7 @@ def create_user(db: Session, user: UserAccount) -> UserAccount:
     ).mappings().first()
     return to_obj(row)
 
-
+#Lấy thông tin nhân viên theo mã nhân viên
 def get_staff(db: Session, staff_id: int) -> Optional[Staff]:
     return fetch_one(
         db,
@@ -94,7 +94,7 @@ def get_staff(db: Session, staff_id: int) -> Optional[Staff]:
         {"staff_id": staff_id},
     )
 
-
+#Lấy thông tin nhân viên theo account_id
 def get_staff_by_account_id(db: Session, account_id: int) -> Optional[Staff]:
     return fetch_one(
         db,
@@ -106,7 +106,7 @@ def get_staff_by_account_id(db: Session, account_id: int) -> Optional[Staff]:
         {"account_id": account_id},
     )
 
-
+#Lấy thông tin nhân viên theo account_id
 def create_staff(db: Session, staff: Staff) -> Staff:
     row = db.execute(
         text(

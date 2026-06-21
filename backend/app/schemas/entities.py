@@ -254,6 +254,7 @@ class TutorAssignmentResponse(BaseModel):
     status: str
     assigned_at: Optional[datetime_type] = None
     note: Optional[str] = None
+    class_id: Optional[int] = None
 
 
 class StudyClassCreate(BaseModel):

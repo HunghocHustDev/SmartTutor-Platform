@@ -17,7 +17,7 @@ from app.repositories.repository_common import (
     update_by_id,
 )
 
-
+#Lấy tất cả thuộc tính từ bảng TUTOR
 def _tutor_select_sql() -> str:
     return """
         SELECT
@@ -36,19 +36,19 @@ def _tutor_select_sql() -> str:
         FROM TUTOR
     """
 
-
+#Lấy danh sách môn học của gia sư
 def _attach_tutor_capabilities(db: Session, tutor):
     if tutor is not None:
         tutor.capabilities = get_tutor_capabilities(db, tutor.tutor_id)
     return tutor
 
-
+#
 def _attach_tutors_capabilities(db: Session, tutors: list):
     for tutor in tutors:
         _attach_tutor_capabilities(db, tutor)
     return tutors
 
-
+#Tìm kiếm và lọc danh sách gia sư theo nhiều tiêu chí
 def get_tutors(
     db: Session,
     search: Optional[str] = None,
@@ -106,7 +106,7 @@ def get_tutors(
     )
     return _attach_tutors_capabilities(db, tutors)
 
-
+#Lấy thông tin chi tiết của 1 gia sư
 def get_tutor(db: Session, tutor_id: int) -> Optional[Tutor]:
     return _attach_tutor_capabilities(
         db,
@@ -120,7 +120,7 @@ def get_tutor(db: Session, tutor_id: int) -> Optional[Tutor]:
         ),
     )
 
-
+#Truy vấn gia sư theo account_id
 def get_tutor_by_account_id(db: Session, account_id: int) -> Optional[Tutor]:
     return fetch_one(
         db,
@@ -144,7 +144,7 @@ def get_tutor_by_account_id(db: Session, account_id: int) -> Optional[Tutor]:
         {"account_id": account_id},
     )
 
-
+#Tạo tài khoản gia sư mới
 def create_tutor(db: Session, tutor: Tutor) -> Tutor:
     row = db.execute(
         text(
@@ -202,7 +202,7 @@ def create_tutor(db: Session, tutor: Tutor) -> Tutor:
     created.capabilities = []
     return created
 
-
+#Cập nhật thông tin gia sư
 def update_tutor(db: Session, tutor_id: int, data: dict) -> None:
     update_by_id(db, "TUTOR", "tutor_id", tutor_id, data, TUTOR_UPDATE_COLUMNS)
 
@@ -218,11 +218,11 @@ def touch_tutor(db: Session, tutor_id: int) -> None:
         {"tutor_id": tutor_id},
     )
 
-
+#Chuyển trạng thái khóa tài khoản gia sư
 def deactivate_tutor(db: Session, tutor_id: int) -> None:
     update_tutor(db, tutor_id, {"status": "INACTIVE"})
 
-
+#Lấy tất cả môn học
 def get_subjects(db: Session, status: Optional[str] = None) -> list[Subject]:
     return fetch_all(
         db,
@@ -243,7 +243,7 @@ def get_subjects(db: Session, status: Optional[str] = None) -> list[Subject]:
         {"status": status},
     )
 
-
+#Lấy thông tin môn học theo ID
 def get_subject(db: Session, subject_id: int) -> Optional[Subject]:
     return fetch_one(
         db,
@@ -263,7 +263,7 @@ def get_subject(db: Session, subject_id: int) -> Optional[Subject]:
         {"subject_id": subject_id},
     )
 
-
+#Tìm môn học dựa trên tên chính xác và cấp lớp
 def get_subject_by_name_level(db: Session, name: str, level: Optional[str] = None) -> Optional[Subject]:
     return fetch_one(
         db,
@@ -284,7 +284,7 @@ def get_subject_by_name_level(db: Session, name: str, level: Optional[str] = Non
         {"name": name, "level": level},
     )
 
-
+#Tọa mới môn học, sử dụng OUTPUT để lấy lại dữ liệu vừa insert
 def create_subject(db: Session, subject: Subject) -> Subject:
     row = db.execute(
         text(

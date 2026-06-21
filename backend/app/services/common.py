@@ -38,8 +38,8 @@ DAY_LABELS = {
 ACTIVE_INACTIVE_STATUSES = {"ACTIVE", "INACTIVE"}
 TUTOR_STATUSES = {"ACTIVE", "INACTIVE", "PAUSED"}
 TUTOR_AVAILABILITY_STATUSES = {"AVAILABLE", "UNAVAILABLE"}
-LEARNING_REQUEST_STATUSES = {"PENDING", "ASSIGNED", "CANCELED"}
-ASSIGNMENT_STATUSES = {"ASSIGNED", "CANCELED"}
+LEARNING_REQUEST_STATUSES = {"PENDING", "ASSIGNED", "MATCHED" , "CANCELED"}
+ASSIGNMENT_STATUSES = {"ASSIGNED", "CONFIRMED", "CANCELED"}
 CLASS_STATUSES = {"ACTIVE", "PAUSED", "COMPLETED", "CANCELED"}
 SCHEDULE_STATUSES = {"ACTIVE", "INACTIVE"}
 SESSION_STATUSES = {"SCHEDULED", "COMPLETED", "STUDENT_ABSENT", "TUTOR_ABSENT", "CANCELED"}
@@ -552,3 +552,15 @@ def get_payment_or_404(db: Session, payment_id: int) -> TuitionPayment:
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
     return payment
+
+def assignment_to_response(assignment: TutorAssignment) -> dict:
+    return {
+        "id": assignment.assignment_id,
+        "request_id": assignment.request_id,
+        "tutor_id": assignment.tutor_id,
+        "staff_id": assignment.staff_id,
+        "status": assignment.status,
+        "assigned_at": assignment.assigned_at,
+        "note": assignment.note,
+        "class_id": assignment.study_class.class_id if assignment.study_class else None,
+    }
